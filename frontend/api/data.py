@@ -1,26 +1,33 @@
 """
-api/data.py — Endpoint Flask per il recupero dati finanziari.
+api/data.py — Endpoint Flask per il recupero dati finanziari e notizie.
 
-Questo modulo espone due API:
-1. GET /api/data/chart  — Scarica i dati OHLCV (Open, High, Low, Close, Volume) 
-                          da Yahoo Finance per le date selezionate e il timeframe scelto.
-2. GET /api/data/news   — Scarica le notizie da Alpaca Markets per il periodo selezionato
-                          e le restituisce con data e titolo per visualizzarle sul grafico.
+Questo modulo espone:
+
+1. GET /api/data/chart   — Dati OHLCV per il grafico.
+2. GET /api/data/news    — Aggrega notizie da Alpaca, Google News e DuckDuckGo,
+                           aggiungendo DDG come provider separato.
+3. GET /api/data/search  — Ricerca simboli (autocompletamento).
+4. GET /api/data/calibrazione — Parametri di calibrazione.
 """
+
 
 import sys
 import os
 
+
 # Il ROOT del progetto è due livelli sopra (frontend/api → frontend → root)
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, ROOT_DIR)
+
 
 from flask import Blueprint, request, jsonify
 import yfinance as yf
 import pandas as pd
 from loguru import logger
 
+
 data_bp = Blueprint("data", __name__)
+
 
 # ------------------------------------------------------------------
 # Lista di simboli comuni con alias (per la ricerca per nome o ISIN)
@@ -47,6 +54,7 @@ ASSET_ALIASES = {
     "meta": "META", "netflix": "NFLX",
 }
 
+
 def resolve_ticker(symbol: str) -> str:
     """
     Converte un nome comune o ISIN nel ticker Yahoo Finance corrispondente.
@@ -57,6 +65,7 @@ def resolve_ticker(symbol: str) -> str:
     return ASSET_ALIASES.get(sym_lower, symbol.strip().upper())
 
 
+
 def calculate_volume_profile(df, bins_count=50):
     """
     Calcola il Volume Profile (Volume by Price) dai dati OHLCV.
@@ -65,12 +74,15 @@ def calculate_volume_profile(df, bins_count=50):
     if df.empty:
         return {"bins": [], "poc": 0}
 
+
     low_price  = df["Low"].min()
     high_price = df["High"].max()
     price_range = high_price - low_price
 
+
     if price_range <= 0:
         return {"bins": [], "poc": 0}
+
 
     bin_size = price_range / bins_count
     
@@ -79,6 +91,7 @@ def calculate_volume_profile(df, bins_count=50):
     for i in range(bins_count):
         price_level = low_price + (i * bin_size) + (bin_size / 2)
         profile[i] = {"price": round(price_level, 4), "volume": 0}
+
 
     # Distribuiamo il volume di ogni candela sui bin che tocca
     # (Metodo semplificato: assegniamo il volume al bin della chiusura)
@@ -89,17 +102,20 @@ def calculate_volume_profile(df, bins_count=50):
         if bin_idx < 0: bin_idx = 0
         profile[bin_idx]["volume"] += int(row["Volume"])
 
+
     bins_list = list(profile.values())
     
     # Identifichiamo il POC (Point of Control)
     poc_bin = max(bins_list, key=lambda x: x["volume"])
     poc_price = poc_bin["price"]
 
+
     return {
         "bins": bins_list,
         "poc": poc_price,
         "max_volume": int(poc_bin["volume"])
     }
+
 
 
 # ------------------------------------------------------------------
@@ -122,25 +138,32 @@ def get_chart_data():
     end      = request.args.get("end", "")
     interval = request.args.get("interval", "1d")
 
+
     ticker = resolve_ticker(symbol)
     logger.info(f"[DATA API] Richiesta dati: {ticker} | {start} → {end} | {interval}")
 
+
     if not start or not end:
         return jsonify({"error": "Parametri 'start' e 'end' obbligatori"}), 400
+
 
     try:
         # Yahoo Finance non supporta 4h nativo: scarichiamo 1h e poi resampliamo
         yf_interval = "1h" if interval == "4h" else interval
 
+
         # yfinance con date esplicite
         df = yf.download(ticker, start=start, end=end, interval=yf_interval, auto_adjust=True)
+
 
         if df.empty:
             return jsonify({"error": f"Nessun dato trovato per {ticker} nel periodo {start}→{end}"}), 404
 
+
         # Puliamo il MultiIndex se presente (yfinance lo produce a volte)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
+
 
         # Resampling 4h se richiesto
         if interval == "4h":
@@ -148,6 +171,7 @@ def get_chart_data():
                 "Open": "first", "High": "max",
                 "Low": "min", "Close": "last", "Volume": "sum"
             }).dropna()
+
 
         # Convertiamo in formato JSON per Lightweight Charts
         candles = []
@@ -163,10 +187,12 @@ def get_chart_data():
                 "volume": int(row["Volume"])
             })
 
+
         logger.success(f"[DATA API] {len(candles)} candele inviate per {ticker}")
         
         # Calcolo del Volume Profile per l'intero periodo
         vol_profile = calculate_volume_profile(df)
+
 
         return jsonify({
             "ticker":   ticker,
@@ -176,13 +202,15 @@ def get_chart_data():
             "volume_profile": vol_profile
         })
 
+
     except Exception as e:
         logger.error(f"[DATA API] Errore: {e}")
         return jsonify({"error": str(e)}), 500
 
 
+
 # ------------------------------------------------------------------
-# ENDPOINT 2: Download notizie da Alpaca per il periodo
+# ENDPOINT 2: Aggrega tutte le notizie (Alpaca + Google News + DuckDuckGo)
 # ------------------------------------------------------------------
 @data_bp.route("/news", methods=["GET"])
 def get_news():
@@ -194,15 +222,17 @@ def get_news():
       - limit  : numero massimo di notizie (default 20)
     
     Restituisce:
-      JSON con array di notizie: [{date, headline, summary, url, source}, ...]
+      JSON con array di notizie: [{time, headline, summary, url, source, provider}, ...]
+      dove .provider può essere: "alpaca", "google_news", "duckduckgo".
     """
     symbol = request.args.get("symbol", "GC=F")
     start  = request.args.get("start", "")
     end    = request.args.get("end", "")
     limit  = int(request.args.get("limit", 2000))
-    # Forza un check: se il limite è stato cachato o è troppo basso per stock "rumorosi" (es AAPL), alzalo
+    # Forza un check: se il limite è stato troppo basso, alzalo
     if limit < 2000:
         limit = 2000
+
 
     ticker = resolve_ticker(symbol)
     symbol_lower = symbol.strip().lower()
@@ -212,22 +242,25 @@ def get_news():
         from agents.alpaca_news_tool import ALPACA_PROXY_MAP
         if symbol_lower in ALPACA_PROXY_MAP:
             proxy = ALPACA_PROXY_MAP[symbol_lower]
-            # La mappa restituisce liste; NewsRequest.symbols vuole stringa CSV
             alpaca_symbol = ",".join(proxy) if isinstance(proxy, list) else proxy
         else:
             alpaca_symbol = ticker.split("=")[0].split("-")[0].replace("^", "").upper()
     except Exception:
         alpaca_symbol = ticker.split("=")[0].split("-")[0].replace("^", "").upper()
 
+
     logger.info(f"[NEWS API] Notizie per {alpaca_symbol} ({start} → {end})")
 
+
     news_list = []
+
 
     # --- Sorgente 1: Alpaca News (notizie storiche nel periodo selezionato) ---
     try:
         import Calibrazione
         from alpaca.data.historical.news import NewsClient
         from alpaca.data.requests import NewsRequest
+
 
         if not Calibrazione.ALPACA_API_KEY or not Calibrazione.ALPACA_SECRET_KEY:
             logger.warning("[NEWS API] Chiavi Alpaca non configurate — salto Alpaca")
@@ -257,11 +290,13 @@ def get_news():
     except Exception as e_alpaca:
         logger.warning(f"[NEWS API] Alpaca non disponibile: {e_alpaca}")
 
+
     # --- Sorgente 2: Google News RSS (notizie correnti) ---
     try:
         import urllib.request, urllib.parse, xml.etree.ElementTree as ET
         import dateutil.parser as dtparser
         import Calibrazione
+
 
         _TICKER_EN = {
             "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas",
@@ -277,6 +312,7 @@ def get_news():
         if alias_name is None:
             alias_name = ticker.split("=")[0].split("^")[-1].replace("-USD", "").title()
 
+
         search_query = f"{alias_name} financial news"
         rss_url = (
             "https://news.google.com/rss/search?"
@@ -285,6 +321,7 @@ def get_news():
         req = urllib.request.Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
         with urllib.request.urlopen(req, timeout=15) as resp:
             tree = ET.fromstring(resp.read())
+
 
         gn_limit = getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", limit)
         gn_added = 0
@@ -314,14 +351,34 @@ def get_news():
     except Exception as e_gn:
         logger.warning(f"[NEWS API] Google News non disponibile: {e_gn}")
 
-    # --- Sorgente 3: DuckDuckGo News (notizie ultima settimana) ---
+
+    # --- Sorgente 3: DuckDuckGo News (notizie ultima settimana, in formato coerente) ---
     try:
         from agents.duckduckgo_news_tool import get_duckduckgo_news_raw
         ddg_results = get_duckduckgo_news_raw(symbol)
-        news_list.extend(ddg_results)
+        # Standardizza il formato DDG allo stesso schema
+        for item in ddg_results:
+            time_int = int(item.get("date", "2026-01-01T00:00:00Z").split("T")[0].replace("-", ""))
+            news_list.append({
+                "time":     time_int,
+                "date":     item.get("date", "").split("T")[0],
+                "headline": item["title"],
+                "summary":  item.get("body", ""),
+                "url":      item["url"],
+                "source":   item.get("source", "DuckDuckGo"),
+                "symbols":  [symbol],
+                "provider": "duckduckgo"
+            })
         logger.info(f"[NEWS API] DuckDuckGo: {len(ddg_results)} articoli per '{symbol}'")
     except Exception as e_ddg:
         logger.warning(f"[NEWS API] DuckDuckGo non disponibile: {e_ddg}")
+
+
+    # Ordina tutte le notizie per data decrescente
+    news_list.sort(key=lambda x: x.get("time", 0), reverse=True)
+    # Taglia al limite desiderato
+    if limit < len(news_list):
+        news_list = news_list[:limit]
 
     logger.success(f"[NEWS API] {len(news_list)} notizie totali per {alpaca_symbol} (Alpaca + Google + DDG)")
     return jsonify({
@@ -329,6 +386,7 @@ def get_news():
         "news":   news_list,
         "total":  len(news_list)
     })
+
 
 
 # ------------------------------------------------------------------
@@ -348,6 +406,7 @@ def search_symbol():
         if query in alias or query in ticker.lower():
             results.append({"name": alias.title(), "ticker": ticker})
 
+
     # Deduplicazione per ticker
     seen = set()
     unique = []
@@ -356,7 +415,9 @@ def search_symbol():
             seen.add(r["ticker"])
             unique.append(r)
 
+
     return jsonify({"results": unique[:10]})
+
 
 
 # ------------------------------------------------------------------
@@ -369,25 +430,38 @@ def get_calibrazione():
     Usato dall'interfaccia per pre-popolare i controlli di calibrazione.
     """
     try:
-        import Calibrazione
+        from Calibrazione import (
+            LLM_PROVIDER, GEMMA4_BASE_URL, MODEL_MACRO_EXPERT, MODEL_TECH_ORCHESTRATOR,
+            MODEL_SPECIALIST, MODEL_SKILL_SELECTOR, TEMPERATURE_JSON, TEMPERATURE_REPORT,
+            AGENT_PATTERN_ENABLED, AGENT_TREND_ENABLED, AGENT_SR_ENABLED, AGENT_VOLUME_ENABLED,
+            TECH_PATTERN_CANDLES, TECH_TREND_CANDLES, TECH_SR_CANDLES, TECH_VOLUME_CANDLES
+        )
         return jsonify({
-            "LLM_PROVIDER":             Calibrazione.LLM_PROVIDER,
-            "QWEN_THINKING_ENABLED":    Calibrazione.QWEN_THINKING_ENABLED,
-            "DEFAULT_PROJECTION_DAYS":  Calibrazione.DEFAULT_PROJECTION_DAYS,
-            "ALPACA_NEWS_LIMIT":        Calibrazione.ALPACA_NEWS_LIMIT,
-            "DUCKDUCKGO_NEWS_LIMIT":    Calibrazione.DUCKDUCKGO_NEWS_LIMIT,
-            "AGENT_MACRO_ENABLED":      Calibrazione.AGENT_MACRO_ENABLED,
-            "AGENT_PATTERN_ENABLED":    Calibrazione.AGENT_PATTERN_ENABLED,
-            "AGENT_TREND_ENABLED":      Calibrazione.AGENT_TREND_ENABLED,
-            "AGENT_SR_ENABLED":         Calibrazione.AGENT_SR_ENABLED,
-            "AGENT_VOLUME_ENABLED":     Calibrazione.AGENT_VOLUME_ENABLED,
-            "TEMPERATURE_KNOWLEDGE_SEARCH":  Calibrazione.TEMPERATURE_KNOWLEDGE_SEARCH,
-            "TEMPERATURE_MACRO_EXPERT":     Calibrazione.TEMPERATURE_MACRO_EXPERT,
-            "TEMPERATURE_TECH_ORCHESTRATOR": Calibrazione.TEMPERATURE_TECH_ORCHESTRATOR,
-            "TEMPERATURE_TECH_SPECIALISTS":  Calibrazione.TEMPERATURE_TECH_SPECIALISTS,
-            "TEMPERATURE_SKILL_SELECTOR":    Calibrazione.TEMPERATURE_SKILL_SELECTOR,
-            "AVAILABLE_MODELS":         Calibrazione.AVAILABLE_MODELS,
-            "AGENT_LLM_CONFIG":         Calibrazione.AGENT_LLM_CONFIG,
+            "llm_provider": LLM_PROVIDER,
+            "gemma4_base_url": GEMMA4_BASE_URL,
+            "models": {
+                "macro_expert": MODEL_MACRO_EXPERT,
+                "tech_orchestrator": MODEL_TECH_ORCHESTRATOR,
+                "specialist": MODEL_SPECIALIST,
+                "skill_selector": MODEL_SKILL_SELECTOR
+            },
+            "temperatures": {
+                "json": TEMPERATURE_JSON,
+                "report": TEMPERATURE_REPORT
+            },
+            "agents_enabled": {
+                "pattern": AGENT_PATTERN_ENABLED,
+                "trend": AGENT_TREND_ENABLED,
+                "sr": AGENT_SR_ENABLED,
+                "volume": AGENT_VOLUME_ENABLED
+            },
+            "tech_candles": {
+                "pattern": TECH_PATTERN_CANDLES,
+                "trend": TECH_TREND_CANDLES,
+                "sr": TECH_SR_CANDLES,
+                "volume": TECH_VOLUME_CANDLES
+            }
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+       

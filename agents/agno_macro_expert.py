@@ -317,34 +317,36 @@ SENTIMENT MACRO (tua analisi precedente):
 ANALISI TEAM TECNICO:
 {sintesi_tecnica}
 
-Ora consulta la tua skill 'trading-verdict-synthesizer' e produci il VERDETTO FINALE operativo in DUE SEZIONI SEPARATE.
-
-══════════════════════════════════════
-SEZIONE 1 — SETUP CORRENTE (SEMPRE OBBLIGATORIA)
-══════════════════════════════════════
-Applica il decision framework professionale (no-trade filters, confluence score) e scrivi NELL'ORDINE ESATTO:
-
-**Bias Primario**: [Bullish / Bearish / Neutrale / NO TRADE] — [motivazione]
-**Struttura di Mercato**: [struttura HH+HL / LH+LL / laterale su 1D e 4H]
-**Confluenza**: [score 1-5] — [fattori]
-**Entry Suggerita**: [PREZZO NUMERICO] — [tipo] — [condizione di trigger]
-**Stop Loss**: [PREZZO NUMERICO] — [metodologia] — [motivazione]
-**Target 1**: [PREZZO NUMERICO] — [metodo] — [R:R]
-**Target 2**: [PREZZO NUMERICO] — [metodo] — [R:R]
-**Gestione Rischio**:
-- R:R minimo raggiunto: [Sì/No — ratio]
-- Qualità del setup: [Alta/Media/Bassa]
-- Raccomandazione dimensionamento: [% capitale]
-
-> [!IMPORTANT]
-> [confluenza macro+tecnica, segnale VSA, fattore di rischio, cosa invaliderebbe il trade]
-{proiezione_section}
-IMPORTANTE:
-- Rispondi ESCLUSIVAMENTE in italiano.
-- La Sezione 1 è SEMPRE obbligatoria. I campi **Entry Suggerita**, **Stop Loss**, **Target 1**, **Target 2** sono il setup CORRENTE e devono contenere prezzi numerici reali.
-- I campi "Entry Proiezione", "Stop Loss Proiezione", "Target Proiezione" appartengono SOLO alla Sezione 2 (Previsione Futura) e non sostituiscono quelli della Sezione 1.
-- Inizia direttamente con '**Bias Primario**:'.
+... Ora consulta la tua skill 'trading-verdict-synthesizer' e produci il VERDETTO FINALE operativo in DUE SEZIONI SEPARATE.
+... 
+... ══════════════════════════════════════
+... SEZIONE 1 — SETUP CORRENTE (SEMPRE OBBLIGATORIA)
+... ══════════════════════════════════════
+... Applica il decision framework professionale (no-trade filters, confluence score) e scrivi NELL'ORDINE ESATTO:
+... 
+... **Bias Primario**: [Bullish / Bearish / Neutrale / NO TRADE] — [motivazione]
+... **Struttura di Mercato**: [struttura HH+HL / LH+LL / laterale su 1D e 4H]
+... **Confluenza**: [score 1-5] — [fattori]
+... **Entry Suggerita**: [PREZZO NUMERICO] — [tipo] — [condizione di trigger]
+... **Stop Loss**: [PREZZO NUMERICO] — [metodologia] — [motivazione]
+... **Target 1**: [PREZZO NUMERICO] — [metodo] — [R:R]
+... **Target 2**: [PREZZO NUMERICO] — [metodo] — [R:R]
+... **Gestione Rischio**:
+... - R:R minimo raggiunto: [Sì/No — ratio]
+... - Qualità del setup: [Alta/Media/Bassa]
+... - Raccomandazione dimensionamento: [% capitale]
+... 
+... > [!IMPORTANT]
+... > [confluenza macro+tecnica, segnale VSA, fattore di rischio, cosa invaliderebbe il trade]
+... {proiezione_section}
+... IMPORTANTE:
+... - Rispondi ESCLUSIVAMENTE in italiano.
+... - La Sezione 1 è SEMPRE obbligatoria. I campi **Entry Suggerita**, **Stop Loss**, **Target 1**, **Target 2** sono il setup CORRENTE e devono contenere prezzi numerici reali.
+... - I campi "Entry Proiezione", "Stop Loss Proiezione", "Target Proiezione" appartengono SOLO alla Sezione 2 (Previsione Futura) e non sostituiscono quelli della Sezione 1.
+... - Inizia direttamente con '**Bias Primario**:'.
 """
+
         logger.info(f"[AGNO MACRO] Generazione verdetto finale per {nome_asset} (proiezione al {projection_end_date or 'N/D'})...")
         response = self.agent.run(query)
-        return _rimuovi_intro_inglese(response.content, marker="**Bias Primario**")
+        return response.content
+

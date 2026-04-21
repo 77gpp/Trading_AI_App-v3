@@ -429,7 +429,6 @@ def _compute_projection(df_1d, days: int,
     Modalità AI-anchored (quando ai_price è fornito):
       Interpolazione lineare dal last_price al prezzo AI target.
       Le bande convergono verso ai_upper/ai_lower (o ±1.5σ come fallback).
-
     Modalità statistica (fallback, quando ai_price è None):
       Regressione lineare sugli ultimi 20 giorni + bande ±1.5σ.
     """
