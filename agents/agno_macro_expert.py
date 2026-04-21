@@ -157,7 +157,7 @@ class AgnoMacroExpert:
                     enable_search=True,
                     enable_news=True,
                     fixed_max_results=getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", 10),
-                    timelimit="none",
+                    timelimit=None,
                     region="us-en",
                     timeout=15,
                     verify_ssl=True,
