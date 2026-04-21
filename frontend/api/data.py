@@ -221,126 +221,114 @@ def get_news():
 
     logger.info(f"[NEWS API] Notizie per {alpaca_symbol} ({start} → {end})")
 
+    news_list = []
+
+    # --- Sorgente 1: Alpaca News (notizie storiche nel periodo selezionato) ---
     try:
         import Calibrazione
         from alpaca.data.historical.news import NewsClient
         from alpaca.data.requests import NewsRequest
 
         if not Calibrazione.ALPACA_API_KEY or not Calibrazione.ALPACA_SECRET_KEY:
-            return jsonify({"error": "Chiavi API Alpaca non configurate"}), 503
-
-        client = NewsClient(
-            api_key=Calibrazione.ALPACA_API_KEY,
-            secret_key=Calibrazione.ALPACA_SECRET_KEY
-        )
-
-        # Alpaca richiede formato ISO8601
-        start_iso = f"{start}T00:00:00Z" if start else None
-        end_iso   = f"{end}T23:59:59Z"   if end   else None
-
-        params = NewsRequest(
-            symbols=alpaca_symbol,
-            start=start_iso,
-            end=end_iso,
-            limit=limit
-        )
-        response = client.get_news(params)
-        articles = response.data.get("news", [])
-
-        news_list = []
-        for art in articles:
-            # Troviamo il timestamp UNIX per posizionare la notizia sul grafico
-            dt = art.created_at
-            news_list.append({
-                "time":     int(dt.timestamp()),
-                "date":     dt.strftime("%Y-%m-%d"),
-                "headline": art.headline,
-                "summary":  getattr(art, "summary", ""),
-                "url":      art.url,
-                "source":   art.source,
-                "symbols":  getattr(art, "symbols", []),
-                "provider": "alpaca"
-            })
-
-        # --- Integrazione Google News RSS (notizie correnti) ---
-        try:
-            import urllib.request, urllib.parse, xml.etree.ElementTree as ET
-            import dateutil.parser as dtparser
-
-            # Mappa esplicita ticker → nome inglese per query di ricerca
-            _TICKER_EN = {
-                "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas",
-                "ZC=F": "Corn", "ZW=F": "Wheat", "ES=F": "S&P 500 futures",
-                "NQ=F": "NASDAQ futures", "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum",
-            }
-            alias_name = _TICKER_EN.get(ticker)
-            if alias_name is None:
-                for k, v in ASSET_ALIASES.items():
-                    if v == ticker and k.replace(" ", "").isascii():
-                        alias_name = k.capitalize()
-                        break
-            if alias_name is None:
-                alias_name = ticker.split("=")[0].split("^")[-1].replace("-USD", "").title()
-
-            search_query = f"{alias_name} financial news"
-            rss_url = (
-                "https://news.google.com/rss/search?"
-                + urllib.parse.urlencode({"q": search_query, "hl": "en-US", "gl": "US", "ceid": "US:en"})
+            logger.warning("[NEWS API] Chiavi Alpaca non configurate — salto Alpaca")
+        else:
+            client = NewsClient(
+                api_key=Calibrazione.ALPACA_API_KEY,
+                secret_key=Calibrazione.ALPACA_SECRET_KEY
             )
-            req = urllib.request.Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                tree = ET.fromstring(resp.read())
+            start_iso = f"{start}T00:00:00Z" if start else None
+            end_iso   = f"{end}T23:59:59Z"   if end   else None
+            params = NewsRequest(symbols=alpaca_symbol, start=start_iso, end=end_iso, limit=limit)
+            response = client.get_news(params)
+            articles = response.data.get("news", [])
+            for art in articles:
+                dt = art.created_at
+                news_list.append({
+                    "time":     int(dt.timestamp()),
+                    "date":     dt.strftime("%Y-%m-%d"),
+                    "headline": art.headline,
+                    "summary":  getattr(art, "summary", ""),
+                    "url":      art.url,
+                    "source":   art.source,
+                    "symbols":  getattr(art, "symbols", []),
+                    "provider": "alpaca"
+                })
+            logger.info(f"[NEWS API] Alpaca: {len(articles)} articoli per '{alpaca_symbol}'")
+    except Exception as e_alpaca:
+        logger.warning(f"[NEWS API] Alpaca non disponibile: {e_alpaca}")
 
-            gn_limit = getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", limit)
-            gn_added = 0
-            for item in tree.findall("./channel/item")[:gn_limit]:
-                try:
-                    title   = item.findtext("title", "")
-                    url_tag = item.findtext("link", "") or ""
-                    pub     = item.findtext("pubDate", "")
-                    source  = item.findtext("source", "Google News")
-                    if not pub:
-                        continue
-                    dt = dtparser.parse(pub)
-                    ts = dt.timestamp()
-                    news_list.append({
-                        "time":     int(ts),
-                        "date":     dt.strftime("%Y-%m-%d"),
-                        "headline": title,
-                        "summary":  "",
-                        "url":      url_tag,
-                        "source":   source,
-                        "symbols":  [symbol],
-                        "provider": "google_news"
-                    })
-                    gn_added += 1
-                except Exception as e_item:
-                    logger.debug(f"[NEWS API] Errore parsing item Google News: {e_item}")
-            logger.info(f"[NEWS API] Google News: {gn_added} articoli per '{search_query}'")
-        except Exception as e_gn:
-            logger.warning(f"[NEWS API] Google News non disponibile (non bloccante): {e_gn} — continuo con sole notizie Alpaca")
-        # -------------------------------
+    # --- Sorgente 2: Google News RSS (notizie correnti) ---
+    try:
+        import urllib.request, urllib.parse, xml.etree.ElementTree as ET
+        import dateutil.parser as dtparser
+        import Calibrazione
 
-        # --- Integrazione DuckDuckGo News ---
-        try:
-            from agents.duckduckgo_news_tool import get_duckduckgo_news_raw
-            ddg_results = get_duckduckgo_news_raw(symbol)
-            news_list.extend(ddg_results)
-            logger.info(f"[NEWS API] DuckDuckGo: {len(ddg_results)} articoli per '{symbol}'")
-        except Exception as e_ddg:
-            logger.warning(f"[NEWS API] DuckDuckGo non disponibile: {e_ddg}")
-        # -----------------------------------
+        _TICKER_EN = {
+            "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas",
+            "ZC=F": "Corn", "ZW=F": "Wheat", "ES=F": "S&P 500 futures",
+            "NQ=F": "NASDAQ futures", "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum",
+        }
+        alias_name = _TICKER_EN.get(ticker)
+        if alias_name is None:
+            for k, v in ASSET_ALIASES.items():
+                if v == ticker and k.replace(" ", "").isascii():
+                    alias_name = k.capitalize()
+                    break
+        if alias_name is None:
+            alias_name = ticker.split("=")[0].split("^")[-1].replace("-USD", "").title()
 
-        logger.success(f"[NEWS API] {len(news_list)} notizie totali trovate per {alpaca_symbol}")
-        return jsonify({
-            "symbol":    alpaca_symbol,
-            "news":      news_list,
-            "total":     len(news_list)
-        })
+        search_query = f"{alias_name} financial news"
+        rss_url = (
+            "https://news.google.com/rss/search?"
+            + urllib.parse.urlencode({"q": search_query, "hl": "en-US", "gl": "US", "ceid": "US:en"})
+        )
+        req = urllib.request.Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            tree = ET.fromstring(resp.read())
 
-    except Exception as e:
-        logger.error(f"[NEWS API] Errore: {e}")
-        return jsonify({"news": [], "error": str(e), "total": 0})
+        gn_limit = getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", limit)
+        gn_added = 0
+        for item in tree.findall("./channel/item")[:gn_limit]:
+            try:
+                title   = item.findtext("title", "")
+                url_tag = item.findtext("link", "") or ""
+                pub     = item.findtext("pubDate", "")
+                source  = item.findtext("source", "Google News")
+                if not pub:
+                    continue
+                dt = dtparser.parse(pub)
+                news_list.append({
+                    "time":     int(dt.timestamp()),
+                    "date":     dt.strftime("%Y-%m-%d"),
+                    "headline": title,
+                    "summary":  "",
+                    "url":      url_tag,
+                    "source":   source,
+                    "symbols":  [symbol],
+                    "provider": "google_news"
+                })
+                gn_added += 1
+            except Exception as e_item:
+                logger.debug(f"[NEWS API] Errore parsing item Google News: {e_item}")
+        logger.info(f"[NEWS API] Google News: {gn_added} articoli per '{search_query}'")
+    except Exception as e_gn:
+        logger.warning(f"[NEWS API] Google News non disponibile: {e_gn}")
+
+    # --- Sorgente 3: DuckDuckGo News (notizie ultima settimana) ---
+    try:
+        from agents.duckduckgo_news_tool import get_duckduckgo_news_raw
+        ddg_results = get_duckduckgo_news_raw(symbol)
+        news_list.extend(ddg_results)
+        logger.info(f"[NEWS API] DuckDuckGo: {len(ddg_results)} articoli per '{symbol}'")
+    except Exception as e_ddg:
+        logger.warning(f"[NEWS API] DuckDuckGo non disponibile: {e_ddg}")
+
+    logger.success(f"[NEWS API] {len(news_list)} notizie totali per {alpaca_symbol} (Alpaca + Google + DDG)")
+    return jsonify({
+        "symbol": alpaca_symbol,
+        "news":   news_list,
+        "total":  len(news_list)
+    })
 
 
 # ------------------------------------------------------------------
