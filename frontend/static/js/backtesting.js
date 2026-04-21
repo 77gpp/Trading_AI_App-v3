@@ -1042,20 +1042,17 @@ function renderNewsSidebar() {
   }
 
   container.innerHTML = filtered.map(n => {
-    const isDDG = n.provider === 'duckduckgo';
+    const isDDG = (n.provider || '').toLowerCase() === 'duckduckgo';
     const accentColor = isDDG ? '#3fbef5' : '#ffa502';
     const icon = isDDG ? '🌐' : '📰';
 
     return `
-      <div class="news-card" onclick="window.open('${n.url}', '_blank')" style="background: rgba(30, 41, 59, 0.5); border: 1px solid rgba(255,255,255,0.05); border-left: 3px solid ${accentColor}; border-radius: 6px; padding: 8px; cursor: pointer; transition: all 0.2s ease; position: relative; margin-bottom: 8px;">
-        <div style="font-size: 10px; color: ${accentColor}; font-weight: bold; margin-bottom: 2px; display: flex; justify-content: space-between;">
-           <span>${icon} ${n.date}</span>
-           <span style="opacity: 0.7;">${n.source || 'News'}</span>
+      <div class="news-card" onclick="window.open('${n.url}', '_blank')" data-provider="${n.provider || ''}" style="background: rgba(30, 41, 59, 0.5); border-top: 1px solid rgba(255,255,255,0.05); border-right: 1px solid rgba(255,255,255,0.05); border-bottom: 1px solid rgba(255,255,255,0.05); border-left: 3px solid ${accentColor}; border-radius: 6px; padding: 8px; cursor: pointer; transition: background 0.2s ease, transform 0.2s ease; position: relative; margin-bottom: 8px;" onmouseenter="this.style.background='rgba(51,65,85,0.8)';this.style.transform='translateX(2px)'" onmouseleave="this.style.background='rgba(30,41,59,0.5)';this.style.transform='none'">
+        <div style="font-size: 10px; font-weight: bold; margin-bottom: 2px; display: flex; justify-content: space-between;">
+           <span style="color: ${accentColor};">${icon} ${n.date}</span>
+           <span style="color: ${accentColor}; opacity: 0.7;">${n.source || 'News'}</span>
         </div>
         <div style="font-size: 11.5px; color: #e2e8f0; line-height: 1.3; font-weight: 500;">${n.headline}</div>
-        <style>
-          .news-card:hover { background: rgba(51, 65, 85, 0.8) !important; transform: translateX(2px); border-color: rgba(255,255,255,0.15) !important; }
-        </style>
       </div>
     `;
   }).join('');

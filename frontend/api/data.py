@@ -358,13 +358,12 @@ def get_news():
         ddg_results = get_duckduckgo_news_raw(symbol)
         # Standardizza il formato DDG allo stesso schema
         for item in ddg_results:
-            time_int = int(item.get("date", "2026-01-01T00:00:00Z").split("T")[0].replace("-", ""))
             news_list.append({
-                "time":     time_int,
-                "date":     item.get("date", "").split("T")[0],
-                "headline": item["title"],
-                "summary":  item.get("body", ""),
-                "url":      item["url"],
+                "time":     item.get("time", 0),
+                "date":     item.get("date", ""),
+                "headline": item.get("headline", ""),
+                "summary":  item.get("summary", ""),
+                "url":      item.get("url", ""),
                 "source":   item.get("source", "DuckDuckGo"),
                 "symbols":  [symbol],
                 "provider": "duckduckgo"
