@@ -321,6 +321,16 @@ def get_news():
             logger.warning(f"[NEWS API] Google News non disponibile (non bloccante): {e_gn} — continuo con sole notizie Alpaca")
         # -------------------------------
 
+        # --- Integrazione DuckDuckGo News ---
+        try:
+            from agents.duckduckgo_news_tool import get_duckduckgo_news_raw
+            ddg_results = get_duckduckgo_news_raw(symbol)
+            news_list.extend(ddg_results)
+            logger.info(f"[NEWS API] DuckDuckGo: {len(ddg_results)} articoli per '{symbol}'")
+        except Exception as e_ddg:
+            logger.warning(f"[NEWS API] DuckDuckGo non disponibile: {e_ddg}")
+        # -----------------------------------
+
         logger.success(f"[NEWS API] {len(news_list)} notizie totali trovate per {alpaca_symbol}")
         return jsonify({
             "symbol":    alpaca_symbol,
