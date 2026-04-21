@@ -283,12 +283,7 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
             logger.info(f"[BACKTEST THREAD] Job {job_id} interrotto prima del SupervisorAgent.")
             return
 
-        vol_profile    = calculate_volume_profile(df_1d)
-        volume_context = (
-            f"\nVOLUME PROFILE ANALYSIS:\n"
-            f"- Point of Control (POC): {vol_profile['poc']}\n"
-            f"- Max Volume Level: {vol_profile['max_volume']}\n"
-        )
+        vol_profile = calculate_volume_profile(df_1d)
 
         from agents.supervisor_agent import SupervisorAgent
         supervisore = SupervisorAgent()
@@ -297,8 +292,8 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
             symbol,
             start_date=start,
             end_date=end,
-            context_extra=volume_context,
-            projection_end_date=projection_end_date
+            projection_end_date=projection_end_date,
+            volume_profile=vol_profile,
         )
 
         # Estrazione setup con last_price per validazione interna dei prezzi AI

@@ -16,6 +16,8 @@ from agents.specialists.pattern_agent import PatternAgent
 from agents.specialists.trend_agent import TrendAgent
 from agents.specialists.sr_agent import SRAgent
 from agents.specialists.volume_agent import VolumeAgent
+import indicators_engine
+from context_builder import ContextBuilder
 
 load_dotenv()
 
@@ -106,7 +108,7 @@ class SupervisorAgent:
 
         logger.success("[AGNO SUPERVISOR] Sistema V5 IBRIDO pronto (Gemini + Qwen).")
 
-    def analizza_asset(self, data_dict, nome_asset, start_date=None, end_date=None, context_extra="", projection_end_date=None):
+    def analizza_asset(self, data_dict, nome_asset, start_date=None, end_date=None, context_extra="", projection_end_date=None, volume_profile=None):
         """
         Master Flow V5 (Modalità Sequenziale Salva-Quota).
         Restituisce una tupla (report_markdown, chosen_tools).
@@ -155,61 +157,35 @@ class SupervisorAgent:
         knowledge_context = self.knowledge_expert.search_knowledge(query_knowledge)
 
         # ── Preparazione contesto dati (1H + 4H + 1D) ───────────────
-        # Strategia di compressione per rispettare il context window del LLM
-        # mantenendo la copertura dell'INTERO periodo su tutti i timeframe:
-        #
-        # - 1D raw:   intero periodo (60 giorni ≈ 60 righe, sempre compatto) → LUNGO TERMINE
-        # - 4H:       aggregazione settimanale per il periodo completo (≈ 9 righe)
-        #             + ultimi 90 raw per il dettaglio recente (~15 giorni)   → MEDIO TERMINE
-        # - 1H:       aggregazione giornaliera per il periodo completo (≈ 60 righe)
-        #             + ultime 72 raw per il dettaglio intraday recente (~3gg) → BREVE TERMINE
+        # Calcola indicatori pre-calcolati e costruisce un contesto differenziato
+        # per ciascun agente: Pattern riceve solo OHLCV+swing, Trend riceve anche
+        # medie mobili e oscillatori, SR riceve Bollinger/ATR/POC, Volume riceve
+        # oscillatori e metriche OBV/POC. Questo mantiene l'indipendenza di giudizio.
 
-        df_1h_all = data_dict["1h"]
-        df_4h_all = data_dict["4h"] if ("4h" in data_dict and data_dict["4h"] is not None and not data_dict["4h"].empty) else None
-        df_1d_all = data_dict["1d"]
+        logger.info("[SUPERVISORE] Calcolo indicatori tecnici pre-calcolati...")
+        indicators_dict = indicators_engine.compute(data_dict)
 
-        # --- 4H: aggregazione settimanale (periodo completo) + raw recenti ---
-        df_4h_str = ""
-        if df_4h_all is not None and not df_4h_all.empty:
-            df_4h_weekly = df_4h_all.resample("W").agg(
-                {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
-            ).dropna()
-            df_4h_recent = df_4h_all.tail(90)
-            df_4h_str = (
-                f"DATI 4H — MEDIO TERMINE ({len(df_4h_all)} candele totali nel periodo):\n"
-                f"Riepilogo Settimanale — intero periodo ({len(df_4h_weekly)} settimane):\n"
-                f"{df_4h_weekly.to_string()}\n\n"
-                f"Dettaglio Raw Recente (ultime {len(df_4h_recent)} candele 4H ~{len(df_4h_recent)//6} giorni):\n"
-                f"{df_4h_recent.to_string()}"
-            )
+        ctx_builder = ContextBuilder(
+            data_dict        = data_dict,
+            indicators_dict  = indicators_dict,
+            knowledge_context= knowledge_context,
+            macro_sentiment  = macro_sentiment,
+            start_date       = start_date,
+            end_date         = end_date,
+            volume_profile   = volume_profile,
+        )
 
-        # --- 1H: aggregazione giornaliera (periodo completo) + raw recenti ---
-        df_1h_daily = df_1h_all.resample("D").agg(
-            {"Open": "first", "High": "max", "Low": "min", "Close": "last", "Volume": "sum"}
-        ).dropna()
-        df_1h_recent = df_1h_all.tail(72)
+        ctx_per_agent = {
+            "pattern": ctx_builder.build("pattern"),
+            "trend":   ctx_builder.build("trend"),
+            "sr":      ctx_builder.build("sr"),
+            "volume":  ctx_builder.build("volume"),
+        }
 
-        ctx_summary = f"""PERIODO ANALISI: dal {start_date or 'N/D'} al {end_date or 'N/D'}
-
-CONTESTO STRATEGICO (DAI LIBRI):
-{knowledge_context}
-
-GUIDA MACRO (dal Macro Strategist — usa questa come bussola direzionale):
-{macro_sentiment}
-
-DATI 1H — BREVE TERMINE ({len(df_1h_all)} candele totali nel periodo):
-Riepilogo Giornaliero — intero periodo ({len(df_1h_daily)} giorni):
-{df_1h_daily.to_string()}
-
-Dettaglio Raw Recente (ultime {len(df_1h_recent)} candele 1H ~3 giorni):
-{df_1h_recent.to_string()}
-
-{df_4h_str}
-
-DATI 1D — LUNGO TERMINE ({len(df_1d_all)} giorni — intero periodo selezionato):
-{df_1d_all.to_string()}
-
-{context_extra}"""
+        # context_extra (legacy) appendito a tutti i contesti se presente
+        if context_extra:
+            for k in ctx_per_agent:
+                ctx_per_agent[k] += f"\n\n{context_extra}"
 
         # ── Step 3: Analisi Tecnica Sequenziale (4 Specialisti) ──────
         skills_guidance = chosen_tools.get("skills_guidance", {})
@@ -232,6 +208,7 @@ DATI 1D — LUNGO TERMINE ({len(df_1d_all)} giorni — intero periodo selezionat
             guidance = skills_guidance.get(guidance_key, "")
             logger.info(f"Interrogazione {nome}...")
             try:
+                agent_ctx = ctx_per_agent[guidance_key]
                 if nome == "Volume Analyst":
                     altri_risultati = {
                         k: v for k, v in results_tech.items()
@@ -239,14 +216,14 @@ DATI 1D — LUNGO TERMINE ({len(df_1d_all)} giorni — intero periodo selezionat
                     }
                     results_tech[nome] = _call_with_retry(
                         agente.analizza,
-                        ctx_summary, macro_sentiment,
+                        agent_ctx, macro_sentiment,
                         skills_guidance=guidance,
                         other_analyses=altri_risultati
                     )
                 else:
                     results_tech[nome] = _call_with_retry(
                         agente.analizza,
-                        ctx_summary, macro_sentiment,
+                        agent_ctx, macro_sentiment,
                         skills_guidance=guidance
                     )
                 logger.success(f"Risposta {nome} ricevuta.")

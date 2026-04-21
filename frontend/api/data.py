@@ -18,7 +18,6 @@ sys.path.insert(0, ROOT_DIR)
 from flask import Blueprint, request, jsonify
 import yfinance as yf
 import pandas as pd
-from datetime import datetime, timedelta
 from loguru import logger
 
 data_bp = Blueprint("data", __name__)
@@ -263,99 +262,63 @@ def get_news():
                 "provider": "alpaca"
             })
 
-        # --- Integrazione DuckDuckGo ---
+        # --- Integrazione Google News RSS (notizie correnti) ---
         try:
-            from ddgs import DDGS
-            import dateutil.parser
-            
-            # Troviamo un nome più "umano" per la ricerca web
-            alias_name = symbol
-            for k, v in ASSET_ALIASES.items():
-                if v == ticker:
-                    alias_name = k.capitalize()
-                    break
+            import urllib.request, urllib.parse, xml.etree.ElementTree as ET
+            import dateutil.parser as dtparser
 
-            ddg_limit = getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", limit)
-            search_query = f"{alias_name} finance news"
-            ddgs_client = DDGS()
-            
-            try:
-                # Cerchiamo le notizie
-                ddgs_news = list(ddgs_client.news(search_query, max_results=ddg_limit))
-                if not ddgs_news:
-                    raise Exception("0 risultati da DDGS")
+            # Mappa esplicita ticker → nome inglese per query di ricerca
+            _TICKER_EN = {
+                "GC=F": "Gold", "SI=F": "Silver", "CL=F": "Crude Oil", "NG=F": "Natural Gas",
+                "ZC=F": "Corn", "ZW=F": "Wheat", "ES=F": "S&P 500 futures",
+                "NQ=F": "NASDAQ futures", "BTC-USD": "Bitcoin", "ETH-USD": "Ethereum",
+            }
+            alias_name = _TICKER_EN.get(ticker)
+            if alias_name is None:
+                for k, v in ASSET_ALIASES.items():
+                    if v == ticker and k.replace(" ", "").isascii():
+                        alias_name = k.capitalize()
+                        break
+            if alias_name is None:
+                alias_name = ticker.split("=")[0].split("^")[-1].replace("-USD", "").title()
 
-                for article in ddgs_news:
-                    try:
-                        dt = dateutil.parser.parse(article.get('date', ''))
-                        news_list.append({
-                            "time":     int(dt.timestamp()),
-                            "date":     dt.strftime("%Y-%m-%d"),
-                            "headline": article.get('title', ''),
-                            "summary":  article.get('body', ''),
-                            "url":      article.get('url', ''),
-                            "source":   article.get('source', 'DuckDuckGo'),
-                            "symbols":  [symbol],
-                            "provider": "duckduckgo"
-                        })
-                    except Exception as e_date:
-                        logger.debug(f"[NEWS API] Errore parsing data notizie DDG: {e_date}")
-            except Exception as search_e:
-                logger.debug(f"[NEWS API] DDGS news non disponibile ({type(search_e).__name__}), uso fallback web HTML...")
-                # Fallback Scraping su HTML DuckDuckGo
-                import requests
-                from bs4 import BeautifulSoup
-                from datetime import datetime
-                
-                headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36"}
-                res = requests.get("https://html.duckduckgo.com/html/", params={"q": search_query}, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    soup = BeautifulSoup(res.text, 'html.parser')
-                    results = soup.find_all('div', class_='result')
-                    count = 0
-                    for r in results:
-                        if count >= ddg_limit: break
-                        a_tag = r.find('a', class_='result__url')
-                        title_tag = r.find('a', class_='result__snippet') or a_tag
-                        snippet_tag = r.find('a', class_='result__snippet')
-                        
-                        if a_tag and title_tag:
-                            href = a_tag.get('href', '')
-                            # Pulizia URL: estraiamo l'URL reale dal redirect di DDG (parametro uddg)
-                            final_url = href
-                            if "uddg=" in href:
-                                try:
-                                    from urllib.parse import urlparse, parse_qs, unquote
-                                    parsed = urlparse(href)
-                                    qs = parse_qs(parsed.query)
-                                    if 'uddg' in qs:
-                                        final_url = unquote(qs['uddg'][0])
-                                except:
-                                    pass
+            search_query = f"{alias_name} financial news"
+            rss_url = (
+                "https://news.google.com/rss/search?"
+                + urllib.parse.urlencode({"q": search_query, "hl": "en-US", "gl": "US", "ceid": "US:en"})
+            )
+            req = urllib.request.Request(rss_url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                tree = ET.fromstring(resp.read())
 
-                            # Mappa la notizia DDG alla data di fine grafico per posizionamento visivo
-                            target_dt = datetime.now()
-                            if end:
-                                try:
-                                    target_dt = datetime.strptime(end, "%Y-%m-%d")
-                                except:
-                                    pass
-                            
-                            news_list.append({
-                                "time": int(target_dt.timestamp()),
-                                "date": target_dt.strftime("%Y-%m-%d"),
-                                "headline": title_tag.text.strip(),
-                                "summary": snippet_tag.text.strip() if snippet_tag else "",
-                                "url": final_url,
-                                "source": "DuckDuckGo Web",
-                                "symbols": [symbol],
-                                "provider": "duckduckgo"
-                            })
-                            count += 1
-                else:
-                    logger.warning(f"[NEWS API] Fallback DDG HTML ritornato {res.status_code}")
-        except Exception as e_ddg_tot:
-             logger.warning(f"[NEWS API] Libreria DDG o richieste fallite: {e_ddg_tot}")
+            gn_limit = getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", limit)
+            gn_added = 0
+            for item in tree.findall("./channel/item")[:gn_limit]:
+                try:
+                    title   = item.findtext("title", "")
+                    url_tag = item.findtext("link", "") or ""
+                    pub     = item.findtext("pubDate", "")
+                    source  = item.findtext("source", "Google News")
+                    if not pub:
+                        continue
+                    dt = dtparser.parse(pub)
+                    ts = dt.timestamp()
+                    news_list.append({
+                        "time":     int(ts),
+                        "date":     dt.strftime("%Y-%m-%d"),
+                        "headline": title,
+                        "summary":  "",
+                        "url":      url_tag,
+                        "source":   source,
+                        "symbols":  [symbol],
+                        "provider": "google_news"
+                    })
+                    gn_added += 1
+                except Exception as e_item:
+                    logger.debug(f"[NEWS API] Errore parsing item Google News: {e_item}")
+            logger.info(f"[NEWS API] Google News: {gn_added} articoli per '{search_query}'")
+        except Exception as e_gn:
+            logger.warning(f"[NEWS API] Google News non disponibile (non bloccante): {e_gn} — continuo con sole notizie Alpaca")
         # -------------------------------
 
         logger.success(f"[NEWS API] {len(news_list)} notizie totali trovate per {alpaca_symbol}")

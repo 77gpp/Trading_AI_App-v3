@@ -18,7 +18,7 @@ MODEL_GEMMA4 = "gemma4"  # Nome del modello servito da localhost:8080
 # Default: Gemma 4 locale su http://localhost:8080
 MODEL_MACRO_EXPERT = "qwen/qwen3-32b"
 MODEL_TECH_ORCHESTRATOR = "qwen/qwen3-32b"
-MODEL_TECH_SPECIALISTS = "gemma4"
+MODEL_TECH_SPECIALISTS = "qwen/qwen3-32b"
 # Modello per Skill Selector: senza thinking mode, ottimizzato per output JSON puro
 MODEL_SKILL_SELECTOR = "llama-3.3-70b-versatile"
 MODEL_KNOWLEDGE_SEARCH = "gemini-2.0-flash"  # Ricerca intelligente nei libri (Agentic Search)
@@ -59,10 +59,10 @@ ALPACA_NEWS_LIMIT = 5000  # Numero massimo di notizie da scaricare da Alpaca Mar
 DUCKDUCKGO_NEWS_LIMIT = 5000  # Numero massimo di risultati di ricerca da DuckDuckGo
 
 
-AGENT_PATTERN_ENABLED = True  # Analisi Pattern Candele (Joe Ross/Nison)
-AGENT_TREND_ENABLED = True  # Analisi Trend e Medie Mobili
-AGENT_SR_ENABLED = True  # Analisi Supporti e Resistenze
-AGENT_VOLUME_ENABLED = True  # Analisi Volumi (Wyckoff/VSA)
+AGENT_PATTERN_ENABLED = False  # Analisi Pattern Candele (Joe Ross/Nison)
+AGENT_TREND_ENABLED = False  # Analisi Trend e Medie Mobili
+AGENT_SR_ENABLED = False  # Analisi Supporti e Resistenze
+AGENT_VOLUME_ENABLED = False  # Analisi Volumi (Wyckoff/VSA)
 
 # --- PERCORSI LIBRERIE ---
 SKILLS_LIBRARY_DIR = "skills_library"

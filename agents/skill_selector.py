@@ -16,6 +16,131 @@ from loguru import logger
 import Calibrazione
 
 # ------------------------------------------------------------------
+# DOMAIN_KEYWORDS — Regex per auto-assegnare ogni tecnica a un singolo dominio.
+#
+# Regola: una tecnica viene assegnata al PRIMO dominio (nell'ordine dichiarato
+# in BOOK_DOMAIN_MAP del libro) il cui regex matcha nome+desc della tecnica.
+# Se nessun dominio matcha → la tecnica è meta/operazionale e viene saltata.
+#
+# Aggiornare questi pattern quando si aggiungono nuove tecniche ai SKILL.md.
+# ------------------------------------------------------------------
+DOMAIN_KEYWORDS: dict[str, str] = {
+    "pattern": (
+        r"(pattern|candle|candela|engulf|harami|doji|hammer|hanging man|shooting star|"
+        r"morning star|evening star|inverted hammer|spinning top|marubozu|belt.hold|"
+        r"dark cloud|piercing|counterattack|upside gap two crows|tasuki|three.*method|"
+        r"three.*soldier|three.*crow|advance block|deliberation|mat hold|kicker|"
+        r"separating lines|thrusting|on.neck|in.neck|\bwindow\b|tweezer|"
+        r"head.*shoulder|testa.*spalle|double.*top|double.*bottom|triple.*top|triple.*bottom|"
+        r"rounding|diamond|bump.*run|saucer|spike|\bflag\b|pennant|wedge|\btriangle\b|"
+        r"triangoli|rettangolo|rectangle|cup.*handle|broadening|scallop|pipe|high.*tight|"
+        r"dead.*cat|measured.*move|bull flag|bear flag|bull pennant|bear pennant|"
+        r"1-2-3|ross hook|ledge|inside bar|outside bar|inside day|outside day|"
+        r"false breakout|false breakdown|trader.*trick|swing failure|"
+        r"law.*chart|oops|smash day|reversal setup|gap trading|exhaustion gap|runaway gap|"
+        r"measuring gap|breakout confirm|volatility breakout|"
+        r"rialzist|ribassist|\bbullish\b|\bbearish\b|inversione|formazione|breakout|"
+        r"failure rate|ranking.*pattern|pattern.*falliti|integrazione.*pattern|"
+        r"throwback|pullback.*pattern|pattern.*supporti|congestion.*break)"
+    ),
+    "trend": (
+        r"(moving average|media mobile|\bsma\b|\bema\b|bollinger|keltner|"
+        r"ichimoku|supertrend|\batr\b|uptrend|downtrend|multiframe|mtf|tenkan|kijun|senkou|"
+        r"higher high|higher low|lower high|lower low|compression setup|volatility expan|"
+        r"staging|trend identification|trend hierarchy|trend continuat|trend change|"
+        r"trend.*warning|short.term momentum|short.term breakout|first pullback|pullback logic|"
+        r"market structure|base formation|trend day|intraday structure|context align|"
+        r"multi.timeframe|dow theory|teoria di dow|trendline|linea.*tendenza|"
+        r"canale.*prezzo|channel line|speed resistance|ventaglio|fan principle|"
+        r"scala aritmet|scala logarit|grafico.*barre|grafico.*lineare|grafico.*point|"
+        r"grafico.*settim|reversal day|weekly.*reversal|swing structure|\btrend\b)"
+    ),
+    "sr": (
+        r"(support|resistance|supporto|resistenza|\bpivot\b|fibonacci|\bfib\b|"
+        r"psych|psychological|supply zone|demand zone|vwap|donchian|"
+        r"swing high|swing low|price swing|price swings|trading range|\bcongestion\b|"
+        r"opening range|seasonal|cyclical|time of day|breadth analysis|retest logic|"
+        r"market context|accumulation phase|distribution phase|"
+        r"reversal day|price gap|internal trendline|"
+        r"ritracciamento|retracement percent|open interest|livelli psicologici|"
+        r"volume analysis|volume.*reference|vwap.*reclaim|vwap.*pullback|"
+        r"context.*map|failed.*break|pullback.*entry|entry timing|relative volume|"
+        r"relative strength|sentiment extreme|\bcot\b)"
+    ),
+    "oscillator": (
+        r"(\brsi\b|\bmacd\b|stochastic|williams.*%|%r\b|williams.*r\b|"
+        r"oscillator|oscillatore|divergence reading|\bdivergen\b|"
+        r"ipercomprato|ipervenduto|overbought|oversold|histogram|\bmao\b|crossover|"
+        r"volume surge|volume spread|\bobv\b|momentum oscill|divergenza)"
+    ),
+}
+
+# Priorità fissa per il domain matching — indipendente dall'ordine del BOOK_DOMAIN_MAP.
+# Oscillator e pattern hanno identificatori molto specifici (rsi, macd, doji, hammer):
+# devono essere controllati prima di trend/sr che hanno termini più generici.
+_DOMAIN_PRIORITY = ["oscillator", "pattern", "sr", "trend"]
+
+# Tecniche operazionali/psicologiche: non appartengono ad alcun dominio analitico.
+# Vengono escluse da tutta la skills_guidance (non utili agli agenti tecnici).
+_META_REGEX = (
+    r"(money.*manag|position.*siz|\bdiscipline\b|emotional|loss.*accept|"
+    r"trade.*journal|risk.*of.*ruin|performance.*review|system.*integrat|"
+    r"simplicity|execution.*disciplin|process.*design|final.*synthesis|"
+    r"\btrade.*management\b|stop.*placement|context.*over.*signal|"
+    r"review.*loop|discipline.*routine|trade review\b|risk control\b)"
+)
+
+
+def _assign_technique_domain(
+    tech_name: str,
+    tech_desc: str,
+    candidate_domains: list[str],
+) -> str | None:
+    """
+    Assegna una tecnica a ESATTAMENTE UNO dei domini candidati del suo libro.
+
+    Algoritmo:
+      1. Se nome+desc matcha _META_REGEX → None (tecnica operazionale, skip)
+      2. Prima passata: match sul SOLO NOME, in ordine _DOMAIN_PRIORITY,
+         vincolato ai candidate_domains del libro.
+         → Previene che la desc "inquini" l'assegnazione (es. MACD ha "Moving Average"
+           nel nome completo ma deve andare a oscillator, non a trend).
+      3. Seconda passata: match su nome+desc (più ampia), stesso ordine.
+      4. Se nessun match → None (tecnica non classificabile, loggata da _verify_coverage).
+
+    Returns:
+        str  — uno dei candidate_domains, oppure
+        None — tecnica meta/operazionale o non classificabile
+    """
+    name_lower = tech_name.lower()
+    combined   = f"{tech_name} {tech_desc}".lower()
+
+    # META check sul solo NOME: evita falsi positivi da descrizioni che menzionano
+    # "position", "discipline", ecc. in contesto analitico (es. "COT Report",
+    # "Relative Strength", "Risk Control" non sono tecniche meta).
+    if re.search(_META_REGEX, name_lower):
+        return None
+
+    # Prima passata: nome soltanto, priorità fissa
+    for domain in _DOMAIN_PRIORITY:
+        if domain not in candidate_domains:
+            continue
+        kw = DOMAIN_KEYWORDS.get(domain, "")
+        if kw and re.search(kw, name_lower):
+            return domain
+
+    # Seconda passata: nome+desc, stessa priorità
+    for domain in _DOMAIN_PRIORITY:
+        if domain not in candidate_domains:
+            continue
+        kw = DOMAIN_KEYWORDS.get(domain, "")
+        if kw and re.search(kw, combined):
+            return domain
+
+    return None   # nessun match → loggato come non-assegnato in _verify_coverage
+
+
+# ------------------------------------------------------------------
 # CATALOGO COMPLETO DEGLI STRUMENTI DISPONIBILI NEL GRAFICO
 # Questi ID devono corrispondere ESATTAMENTE ai case in computeOverlayData() di chart.js
 # ------------------------------------------------------------------
@@ -265,42 +390,44 @@ DEFAULT_COLORS = {
 BOOK_DOMAIN_MAP: dict[str, list[str]] = {
 
     # ── Steve Nison — Japanese Candlestick Charting ─────────────────
-    # Cap. 1-11:  analisi delle candele singole, doppie, triple → pattern
-    # Cap. 12-14: utilizzo di RSI, Stochastic, MACD, MAO come conferme
-    #             obbligatorie ai segnali candlestick → oscillator
-    "Steve Nison — Japanese Candlestick Charting": ["pattern", "oscillator"],
+    # SKILL.md: ~40 tecniche, tutte pattern candlestick (singole/doppie/triple).
+    # L'uso degli oscillatori come conferma è descritto dentro i body delle tecniche
+    # (non come heading ## separati), quindi non genera tecniche oscillator autonome.
+    "Steve Nison — Japanese Candlestick Charting": ["pattern"],
 
     # ── Thomas Bulkowski — Encyclopedia of Chart Patterns ───────────
-    # Parte 1-3:  ~74 pattern grafici con statistiche di breakout e target → pattern
-    # Appendici:  conferme con RSI, MACD, volume → oscillator
-    # (Target misurati sono derivati dal pattern, non S/R indipendente)
-    "Thomas Bulkowski — Encyclopedia of Chart Patterns": ["pattern", "oscillator"],
+    # SKILL.md: ~40 tecniche, tutte chart pattern con statistiche breakout/target.
+    # Le sezioni finali (Failure Rate, Ranking, Target Misurato, ecc.) sono
+    # meta-analisi dei pattern stessi → assegnate a "pattern".
+    "Thomas Bulkowski — Encyclopedia of Chart Patterns": ["pattern"],
 
     # ── Joe Ross — Day Trading (La Legge dei Grafici — TLOC) ────────
-    # Parte 1-4:  1-2-3 Top/Bottom, Ross Hook, Ledge, Trading Range, entrate → pattern
-    # Appendici:  Conferme con oscillatori e momentum → oscillator
-    # (Livelli di entrata TLOC sono derivati dal pattern, non S/R indipendente)
-    "Joe Ross — Day Trading": ["pattern", "oscillator"],
+    # SKILL.md: pattern TLOC (1-2-3, Ross Hook, Ledge, ecc.) → pattern
+    #           struttura del trend (Trend Identification, Higher/Lower Highs) → trend
+    #           livelli operativi (Trading Range, Swing H/L, Congestion) → sr
+    #           tecniche meta (Money Mgmt, Discipline, ecc.) → saltate
+    "Joe Ross — Day Trading": ["pattern", "trend", "sr"],
 
     # ── Larry Williams — Long-Term Secrets to Short-Term Trading ────
-    # Cap. 1-5:   Swing highs/lows come S/R operativi, livelli psicologici → sr
-    # Cap. 6-9:   Momentum, trend di breve e conferme di prezzo → trend
-    # Cap. 10-14: Williams %R, MACD, pattern Oops, Smash Day → oscillator
-    "Larry Williams — Long-Term Secrets to Short-Term Trading": ["trend", "sr", "oscillator"],
+    # SKILL.md: gap patterns (Oops, Smash Day, Gap Trading) → pattern
+    #           trend di breve (Trend Primario, Momentum, Breakout) → trend
+    #           livelli chiave (Price Swings, Trading Range, Opening Range) → sr
+    #           oscillatori (Williams %R, Divergence) → oscillator
+    #           tecniche meta → saltate
+    "Larry Williams — Long-Term Secrets to Short-Term Trading": ["pattern", "trend", "sr", "oscillator"],
 
     # ── John Murphy — Analisi Tecnica dei Mercati Finanziari ────────
-    # Cap. 1-5:   Fondamenti AT, trend, medie mobili → trend
-    # Cap. 6-8:   Pattern grafici di inversione e continuazione → pattern
-    # Cap. 9-10:  Supporti, resistenze, canali, Fibonacci → sr
-    # Cap. 11-14: Oscillatori (RSI, MACD, Stochastic, divergenze) → oscillator
-    # Cap. 15-16: Analisi volumetrica e Open Interest → (volume, trattato da Shannon)
+    # SKILL.md: inversioni/continuazioni grafiche → pattern
+    #           Dow Theory, MAs, Trendline → trend
+    #           Supporto/Resistenza, Fibonacci, Pivot → sr
+    #           MACD, RSI, Oscillatori → oscillator
     "John Murphy — Analisi Tecnica dei Mercati Finanziari": ["pattern", "trend", "sr", "oscillator"],
 
     # ── Brian Shannon — Technical Analysis Using Multiple Timeframes ─
-    # Cap. 1-4:   Allineamento del trend su più timeframe → trend
-    # Cap. 5-7:   Identificazione VWAP, S/R e livelli chiave MTF → sr
-    # Cap. 8:     Uso di RSI e MACD per conferma MTF → oscillator
-    "Brian Shannon — Technical Analysis Using Multiple Timeframes": ["trend", "sr", "oscillator"],
+    # SKILL.md: MTF Framework, Trend Hierarchy, Staging → trend
+    #           Support/Resistance, VWAP, Relative Strength → sr
+    #           tecniche meta (Trade Management, Stop Placement, ecc.) → saltate
+    "Brian Shannon — Technical Analysis Using Multiple Timeframes": ["trend", "sr"],
 }
 
 # ------------------------------------------------------------------
@@ -564,19 +691,18 @@ class SkillSelector:
 
                 def _flush_technique():
                     """
-                    Salva la tecnica corrente nel catalogo.
+                    Salva la tecnica corrente nel catalogo con assegnazione di dominio.
 
                     Campi prodotti:
-                    - body: testo completo della tecnica (per frontend/tooltip)
-                    - desc: solo la riga **Descrizione:** (per skills_guidance agli agenti,
-                            compatta e adatta ai limiti di contesto del modello)
+                    - body:   testo completo della tecnica (per frontend/tooltip)
+                    - desc:   solo la riga **Descrizione:** (per skills_guidance agli agenti)
+                    - domain: dominio assegnato ("pattern"|"trend"|"sr"|"oscillator"),
+                              oppure None se tecnica meta/operazionale (da saltare)
                     """
                     if current_name:
                         body = " ".join(
                             l.strip() for l in current_body_lines if l.strip()
                         ).strip()
-                        # Estrai solo la sezione **Descrizione:** per la guidance compatta.
-                        # Cerca il valore dopo "**Descrizione:**" fino al prossimo "**" o fine.
                         desc_match = re.search(
                             r'\*\*Descrizione:\*\*\s*(.+?)(?=\*\*[A-Z]|$)',
                             body,
@@ -585,9 +711,16 @@ class SkillSelector:
                         if desc_match:
                             desc = re.sub(r'\s+', ' ', desc_match.group(1)).strip()
                         else:
-                            # Fallback: prime 300 char del body se Descrizione non trovata
                             desc = body[:300].strip()
-                        techniques.append({"name": current_name, "body": body, "desc": desc})
+
+                        candidate_domains = BOOK_DOMAIN_MAP.get(book_label, [])
+                        domain = _assign_technique_domain(current_name, desc, candidate_domains)
+                        techniques.append({
+                            "name":   current_name,
+                            "body":   body,
+                            "desc":   desc,
+                            "domain": domain,
+                        })
 
                 for line in lines:
                     stripped = line.strip()
@@ -657,75 +790,119 @@ class SkillSelector:
 
     def _verify_coverage(self, catalog: dict) -> None:
         """
-        Verifica che ogni libro e ogni tecnica siano assegnati ad almeno
-        un agente. Emette warning espliciti per ogni gap trovato.
+        Audit rigoroso del catalogo dopo l'assegnazione dominio-tecnica.
 
-        Questo metodo non modifica nulla — è puro audit con logging.
-        Da chiamare dopo _load_technique_catalog().
+        Controlla tre invarianti:
+          1. Ogni libro in BOOK_DOMAIN_MAP ha almeno una tecnica per ogni suo dominio.
+          2. Ogni tecnica ha esattamente un dominio (nessuna duplicata tra agenti).
+          3. Nessuna tecnica ha domain=None senza essere meta: warn con lista.
 
-        Verifica inoltre la coerenza semantica tra il nome/desc della tecnica
-        e il dominio assegnato (pattern/trend/sr/oscillator).
+        Non modifica il catalogo — è puro reporting. Chiamare dopo _load_technique_catalog.
         """
-        all_domains = ("pattern", "trend", "sr", "oscillator")
-        uncovered_books:      list[str] = []
-        uncovered_techniques: list[tuple[str, str]] = []  # (book, tech_name)
-        incoherent_assignments: list[tuple[str, str, str]] = []  # (book, domain, tech_name)
+        all_valid_domains = {"pattern", "trend", "sr", "oscillator"}
 
-        # Regex keywords per validare coerenza
-        domain_keywords = {
-            "pattern": r"(pattern|candela|candle|engulfing|harami|doji|hammer|star|formation|formazione|breakout|chart|head.*shoulder|testa.*spalle|double|triangle|wedge|flag|1-2-3|ross|inside|pin|dark cloud|piercing|shooting|morning|evening|tweezer|counterattack|gap|oops|smash|outside|volatility)",
-            "trend": r"(moving.*average|media.*mobile|sma|ema|trend|momentum|bollinger|band|channel|keltner|ichimoku|supertrend|atr|slope|direction|uptrend|downtrend|rialzo|ribasso|equilibrium|convergence|divergence|incrocio|multiframe|mtf|alignment|tenkan|kijun|senkou)",
-            "sr": r"(support|resistance|supporto|resistenza|livello|pivot|fibonacci|fib|psych|psychological|zone|area|supply|demand|accumulation|distribution|vwap|donchian|swing|high.*low|max.*min|confluence|confluenza|target|entry|entrata)",
-            "oscillator": r"(rsi|macd|stochastic|williams|%r|momentum|oscill|divergence|convergence|ipercomprato|ipervenduto|overbought|oversold|signal|segnale|histogram|confirmation|conferma|volume|mao|crossover)",
-        }
+        # Verifica dominî sconosciuti nel BOOK_DOMAIN_MAP
+        for book_label, domains in BOOK_DOMAIN_MAP.items():
+            for d in domains:
+                if d not in all_valid_domains:
+                    logger.warning(
+                        f"[SKILL SELECTOR] Dominio sconosciuto '{d}' in BOOK_DOMAIN_MAP "
+                        f"per '{book_label}' — validi: {sorted(all_valid_domains)}"
+                    )
+
+        # Libri nel catalogo ma non in BOOK_DOMAIN_MAP
+        for book_label in catalog:
+            if book_label not in BOOK_DOMAIN_MAP:
+                logger.warning(
+                    f"[SKILL SELECTOR] Libro estratto ma non in BOOK_DOMAIN_MAP: '{book_label}'. "
+                    f"Aggiungilo per assegnare le tecniche agli agenti."
+                )
+
+        errors:   list[str] = []
+        warnings: list[str] = []
+
+        # Raccoglie tutte le tecniche assegnate: {domain: [(book, name)]}
+        domain_techs: dict[str, list[tuple[str, str]]] = {d: [] for d in all_valid_domains}
+        # Tecniche non assegnate (domain=None, non meta)
+        unassigned: list[tuple[str, str]] = []
 
         for book_label, techniques in catalog.items():
             domains_for_book = BOOK_DOMAIN_MAP.get(book_label, [])
-
-            # Libro non mappato = tutte le sue tecniche sono orfane
             if not domains_for_book:
-                uncovered_books.append(book_label)
-                for tech in techniques:
-                    uncovered_techniques.append((book_label, tech["name"]))
                 continue
 
-            # Verifica che il libro sia mappato ad almeno un dominio valido
-            for domain in domains_for_book:
-                if domain not in all_domains:
-                    logger.warning(
-                        f"[SKILL SELECTOR] Dominio sconosciuto '{domain}' "
-                        f"in BOOK_DOMAIN_MAP per '{book_label}'"
+            for tech in techniques:
+                d = tech.get("domain")
+                name = tech["name"]
+
+                if d is None:
+                    # DistingUI meta (escluse per design) da non-classificate (gap nei keyword).
+                    # Usa lo stesso check nome-only usato da _assign_technique_domain.
+                    if not re.search(_META_REGEX, name.lower()):
+                        unassigned.append((book_label, name))
+                    continue
+
+                if d not in all_valid_domains:
+                    errors.append(f"[{book_label}] '{name}' → dominio invalido '{d}'")
+                    continue
+
+                if d not in domains_for_book:
+                    errors.append(
+                        f"[{book_label}] '{name}' → dominio '{d}' non dichiarato "
+                        f"in BOOK_DOMAIN_MAP (attesi: {domains_for_book})"
+                    )
+                    continue
+
+                domain_techs[d].append((book_label, name))
+
+        # 1. Ogni dominio dichiarato in ogni libro deve avere almeno una tecnica
+        for book_label, domains in BOOK_DOMAIN_MAP.items():
+            if book_label not in catalog:
+                continue
+            for d in domains:
+                book_domain_techs = [
+                    n for b, n in domain_techs.get(d, []) if b == book_label
+                ]
+                if not book_domain_techs:
+                    warnings.append(
+                        f"'{book_label}' dichiara dominio '{d}' ma nessuna tecnica è stata "
+                        f"assegnata ad esso — verifica DOMAIN_KEYWORDS o il contenuto del SKILL.md"
                     )
 
-                # Verifica coerenza semantica per ogni tecnica del dominio
-                for tech in techniques:
-                    combined_text = f"{tech['name']} {tech.get('desc', '')}".lower()
-                    keywords = domain_keywords.get(domain, [])
-                    if keywords and not re.search(keywords, combined_text):
-                        incoherent_assignments.append((book_label, domain, tech["name"]))
+        # 2. Nessuna tecnica duplicata tra domini (garantito da single-assignment, ma verifichiamo)
+        all_names: dict[str, list[str]] = {}  # nome → [domini]
+        for d, techs in domain_techs.items():
+            for book_label, name in techs:
+                key = f"{book_label}::{name}"
+                all_names.setdefault(key, []).append(d)
+        for key, domains_list in all_names.items():
+            if len(domains_list) > 1:
+                errors.append(f"Tecnica duplicata in più domini: '{key}' → {domains_list}")
 
-        if uncovered_books:
-            logger.warning(
-                f"[SKILL SELECTOR] LIBRI SENZA AGENTE: {uncovered_books}. "
-                f"Aggiungerli a BOOK_DOMAIN_MAP per includerne le tecniche."
-            )
-        if uncovered_techniques:
-            logger.warning(
-                f"[SKILL SELECTOR] {len(uncovered_techniques)} tecniche non assegnate "
-                f"ad alcun agente. Dettaglio: "
-                + "; ".join(f"[{b}] {n}" for b, n in uncovered_techniques[:10])
-                + (" ..." if len(uncovered_techniques) > 10 else "")
-            )
-        if incoherent_assignments:
-            logger.warning(
-                f"[SKILL SELECTOR] {len(incoherent_assignments)} ASSEGNAMENTI POTENZIALMENTE INCOERENTI "
-                f"(nome/desc non matcha dominio). Dettaglio: "
-                + "; ".join(f"[{d}] {n}" for b, d, n in incoherent_assignments[:5])
-                + (" ..." if len(incoherent_assignments) > 5 else "")
+        # 3. Tecniche senza dominio (non meta)
+        if unassigned:
+            warnings.append(
+                f"{len(unassigned)} tecniche senza dominio assegnato (non meta) — "
+                f"aggiungi keyword a DOMAIN_KEYWORDS: "
+                + "; ".join(f"[{b}] {n}" for b, n in unassigned[:10])
+                + (" ..." if len(unassigned) > 10 else "")
             )
 
-        if not uncovered_books and not uncovered_techniques and not incoherent_assignments:
-            logger.debug("[SKILL SELECTOR] Coverage check OK — tutte le tecniche assegnate e coerenti.")
+        # ── Report finale ──────────────────────────────────────────────────────
+        if errors:
+            for e in errors:
+                logger.error(f"[SKILL SELECTOR] ERRORE COVERAGE: {e}")
+
+        if warnings:
+            for w in warnings:
+                logger.warning(f"[SKILL SELECTOR] {w}")
+
+        if not errors and not warnings:
+            totals = {d: len(v) for d, v in domain_techs.items()}
+            logger.info(
+                f"[SKILL SELECTOR] Coverage OK — tecniche per dominio: "
+                + " | ".join(f"{d}={n}" for d, n in totals.items())
+            )
 
     # ------------------------------------------------------------------
     # SKILLS GUIDANCE — Istruzioni deterministiche per ogni specialista
@@ -785,13 +962,11 @@ class SkillSelector:
 
         def _build_sections(domain: str) -> str:
             """
-            Costruisce il blocco testuale con tutte le tecniche di tutti
-            i libri assegnati al dominio.
+            Costruisce il blocco testuale con le sole tecniche assegnate a questo dominio.
 
-            Usa il campo `desc` (solo la riga Descrizione) per mantenere
-            la guidance compatta e compatibile con i limiti di contesto del
-            modello. Il body completo è disponibile in techniques_per_domain
-            per i tooltip del frontend.
+            Filtra per tech["domain"] == domain: ogni tecnica appare in UN SOLO agente,
+            quello corrispondente al suo dominio assegnato da _assign_technique_domain.
+            Le tecniche meta (domain=None) sono già state escluse in fase di estrazione.
 
             Formato:
               [Nome Libro]:
@@ -803,13 +978,17 @@ class SkillSelector:
                 if domain not in BOOK_DOMAIN_MAP.get(book_label, []):
                     continue
                 lines: list[str] = []
-                for i, tech in enumerate(book_techs, start=1):
+                counter = 1
+                for tech in book_techs:
+                    if tech.get("domain") != domain:
+                        continue
                     name = tech["name"]
                     desc = tech.get("desc", tech.get("body", "")[:300]).strip()
                     if desc:
-                        lines.append(f"  {i}. {name} — {desc}")
+                        lines.append(f"  {counter}. {name} — {desc}")
                     else:
-                        lines.append(f"  {i}. {name}")
+                        lines.append(f"  {counter}. {name}")
+                    counter += 1
                 if lines:
                     sections.append(f"[{book_label}]:\n" + "\n".join(lines))
             return "\n\n".join(sections)
