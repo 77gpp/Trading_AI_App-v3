@@ -50,7 +50,7 @@
 
 ## Flusso di Esecuzione Sequenziale
 
-Il sistema esegue ogni step in sequenza con **25 secondi di pausa** tra ogni chiamata LLM, per rispettare i rate limit delle API Groq (token/minuto).
+Il sistema esegue ogni step in sequenza con **throttling adattivo Groq** (rate limiting automatico). Non usa pause fisse, ma legge il tempo di attesa reale dagli header di risposta Groq (`retry-after`, `remaining-tokens`) e applica retry esponenziale in caso di 429.
 
 ```
 DataFetcher.get_mtf_data()
@@ -65,7 +65,7 @@ SupervisorAgent.analizza_asset()
    │     ├─ AlpacaNewsTool: notizie istituzionali certificate
    │     ├─ Skill: macro-strategist (framework Dalio/Soros/Murphy/Rickards)
    │     └─ → macro_sentiment (testo Markdown con Regime/Bias/Conviction)
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
    │
    ├─ [Step 1.5] SkillSelector.select_tools()
    │     ├─ Legge: skill_summaries (primi 1500 char di ogni SKILL.md)
@@ -78,34 +78,43 @@ SupervisorAgent.analizza_asset()
    │     ├─ Gemini File API: ricerca semantica nei PDF dei libri
    │     └─ → knowledge_context (estratti rilevanti per l'asset analizzato)
    │
-   ├─ [Preparazione ctx_summary]
-   │     Contiene: periodo · knowledge_context · macro_sentiment · OHLCV 1H+4H+1D
+   ├─ [Preparazione Contesti Specializzati]
+   │     ├─ ContextBuilder differenzia il contesto per ciascun specialista
+   │     ├─ Pattern: riceve solo OHLCV + swing patterns (massima indipendenza)
+   │     ├─ Trend: riceve OHLCV + medie mobili + oscillatori (RSI/MACD)
+   │     ├─ SR: riceve OHLCV + Bollinger Bands + ATR + POC (per livelli)
+   │     └─ Volume: riceve OHLCV + OBV + POC + oscillatori (per validazione)
    │
-   ├─ [Step 3a] PatternAgent.analizza(ctx_summary, macro_sentiment, skills_guidance["pattern"])
+   ├─ [Step 3a] PatternAgent.analizza(ctx_pattern, macro_sentiment, skills_guidance["pattern"])
    │     ├─ Skills: 6 libri tecnici (Nison · Bulkowski · Ross · Williams · Murphy · Shannon)
    │     ├─ Focus: pattern selezionati da SkillSelector (es. Engulfing, Pin Bar, H&S)
    │     └─ → results_tech["Pattern Analyst"]
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
    │
-   ├─ [Step 3b] TrendAgent.analizza(ctx_summary, macro_sentiment, skills_guidance["trend"])
+   ├─ [Step 3b] TrendAgent.analizza(ctx_trend, macro_sentiment, skills_guidance["trend"])
    │     ├─ Skills: 6 libri tecnici
    │     ├─ Focus: indicatori selezionati (es. SMA 200, EMA 50, Bollinger)
    │     └─ → results_tech["Trend Analyst"]
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
    │
-   ├─ [Step 3c] SRAgent.analizza(ctx_summary, macro_sentiment, skills_guidance["sr"])
+   ├─ [Step 3c] SRAgent.analizza(ctx_sr, macro_sentiment, skills_guidance["sr"])
    │     ├─ Skills: 6 libri tecnici
    │     ├─ Focus: livelli selezionati (es. Fibonacci, Pivot settimanali, Supply Zone)
    │     └─ → results_tech["SR Analyst"]
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
    │
-   ├─ [Step 3d] VolumeAgent.analizza(ctx_summary, macro_sentiment, skills_guidance["volume"], other_analyses)
+   ├─ [Step 3d] VolumeAgent.analizza(ctx_volume, macro_sentiment, skills_guidance["volume"], other_analyses)
    │     ├─ Skills: 6 libri tecnici
    │     ├─ Ruolo: FILTRO FINALE — valida i segnali effettivi degli altri 3 specialisti
    │     ├─ Input extra: other_analyses = output reali di Pattern, Trend, SR (non solo nomi)
    │     ├─ Framework: VSA (Tom Williams) + Wyckoff
    │     └─ → results_tech["Volume Analyst"]  ← dichiara RISCHIO ELEVATO se volumi divergono
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
+   │
+   ├─ [Classificazione Tecniche Applicate]
+   │     ├─ L1 (garanzia): strumenti AI-selezionati da SkillSelector (chosen_tools[domain])
+   │     ├─ L2 (keyword): TECHNIQUE_OVERLAY_MAP scansiona output dell'agente
+   │     └─ L3 (badge): nomi skill menzionati nel testo (per information)
    │
    ├─ [Step 4] AgnoMacroExpert.sintetizza_verdetto(nome_asset, macro_sentiment, results_tech)
    │     ├─ Stesso agente del Step 1 — usa la memoria contestuale dell'analisi macro
@@ -116,11 +125,61 @@ SupervisorAgent.analizza_asset()
    │     ├─ Applica: no-trade filters → confluence score → livelli di prezzo degli specialisti
    │     └─ → verdetto_finale: Bias Primario · Entry · SL · Target 1 · Target 2
    │           (oppure: NO TRADE con motivazione e cosa osservare)
-   │     [attesa 25s]
+   │     [retry adattivo se rate limit]
    │
    └─ Assemblaggio report Markdown definitivo
          Struttura: MACRO · LIBRARY · TOOLS · TEAM TECNICO · VERDETTO
 ```
+
+---
+
+## Throttling Adattivo Groq
+
+Il sistema implementa gestione intelligente dei rate limit Groq senza pause fisse.
+
+### Meccanismo `_call_with_retry()`
+
+```python
+def _call_with_retry(fn, *args, max_retries: int = 3, fallback: int = 30, **kwargs):
+    """
+    Esegue fn(*args, **kwargs) con retry automatico in caso di rate limit.
+    """
+    for attempt in range(1, max_retries + 1):
+        try:
+            return fn(*args, **kwargs)
+        except Exception as e:
+            is_rate_limit = (
+                "rate_limit" in str(e) or
+                "429" in str(e) or
+                "too many requests" in str(e) or
+                "try again in" in str(e)
+            )
+            if is_rate_limit and attempt < max_retries:
+                _smart_sleep(str(e), fallback=fallback)  # Attesa intelligente
+            else:
+                raise
+```
+
+### Funzione `_smart_sleep()`
+
+Estrae il tempo di attesa **reale** dal messaggio di errore Groq e aspetta esattamente quello:
+
+1. **Parsing del tempo di attesa**:
+   - Riconosce pattern: `"try again in 27.345s"`
+   - Riconosce minuti: `"try again in 1m30s"` 
+   - Converte in secondi totali + 2s di margine
+
+2. **Retry esponenziale**:
+   - Max 3 tentativi per chiamata LLM
+   - Se fallback (tempo non estraibile): default 30s
+   - Non usa mai pause fisse
+
+### Impatto sull'Architettura
+
+- **Prima**: sleep fisso di 25s tra ogni agente ⟹ ~150s overhead anche con basso token count
+- **Ora**: attesa proporzionale al rate limit reale ⟹ rispetto rate limit + efficienza
+
+Tutti gli agenti usano `_call_with_retry()` in modo trasparente via `SupervisorAgent`.
 
 ---
 
@@ -189,6 +248,37 @@ Tutti gli specialisti tecnici condividono **tutti e 6 i libri** — la selezione
 |---------------|-----------|
 | `storage/memory/trading_system.db` | SQLite — sessioni agenti (memoria conversazionale tra run) |
 | `data/books/` | PDF originali dei libri (sorgente per Gemini File API) |
+
+---
+
+## Differenziazione dei Contesti per Specialista (ContextBuilder)
+
+Uno degli aspetti chiave della V5 è che ogni specialista riceve un contesto **customizzato**, non identico. Questo preserva l'indipendenza di giudizio.
+
+```python
+ctx_per_agent = {
+    "pattern": ctx_builder.build("pattern"),  # OHLCV + swing patterns (minimalista)
+    "trend":   ctx_builder.build("trend"),    # OHLCV + SMA/EMA + RSI/MACD
+    "sr":      ctx_builder.build("sr"),       # OHLCV + Bollinger Bands + ATR + POC
+    "volume":  ctx_builder.build("volume"),   # OHLCV + OBV + POC + oscillatori
+}
+```
+
+### Strategie di Contesto Specializzato
+
+| Specialista | Input Ricevuto | Logica | Scopo |
+|---|---|---|---|
+| **Pattern Analyst** | OHLCV + swing patterns | Identifica solo candele e pattern grafici puri | Massima indipendenza — niente indicatori che potrebbero influenzare |
+| **Trend Analyst** | OHLCV + medie mobili + RSI/MACD | Analizza struttura direzionale e momentum | Valuta forza e qualità del trend primario |
+| **SR Analyst** | OHLCV + Bollinger Bands + ATR + POC | Calcola supporti, resistenze, zone | Mappa livelli senza contaminazione da momentum |
+| **Volume Analyst** | OHLCV + OBV + POC + oscillatori | Valida i segnali dei colleghi + analizza sforzo | Filtro finale: se volume ≠ movimento → rischio elevato |
+
+### Benefici della Differenziazione
+
+1. **Indipendenza**: Pattern, Trend, SR non si influenzano reciprocamente
+2. **Riduzione di viés**: ogni agente usa solo i dati rilevanti per il suo dominio
+3. **Validazione incrociata**: Volume Analyst vede gli output reali degli altri 3 (non solo i nomi)
+4. **Scalabilità**: facile aggiungere nuovi specialisti con contesti customizzati
 
 ---
 
@@ -262,31 +352,49 @@ Questo è il meccanismo che connette la selezione AI degli strumenti con l'effet
 Tutti i parametri di sistema si trovano in un unico file. Non esistono valori hardcoded negli agenti.
 
 ```
-LLM_PROVIDER              → 'gemma4' (locale), 'qwen' (Groq), o 'gemini' (Google)
-QWEN_THINKING_ENABLED     → True = thinking mode attivo (più lento, più profondo)
-                            False = risposta diretta (più veloce, no preamble inglese)
+LLM_PROVIDER                    → 'gemma4' (locale), 'qwen' (Groq), o 'gemini' (Google)
+GEMMA4_BASE_URL                 → 'http://localhost:8080/v1' (per provider locale)
+QWEN_THINKING_ENABLED           → True = thinking mode attivo (più lento, più profondo)
+                                   False = risposta diretta (più veloce, no preamble inglese)
 
-MODEL_MACRO_EXPERT        → Modello per AgnoMacroExpert (Step 1 + Step 4)
-MODEL_TECH_SPECIALISTS    → Modello per i 4 specialisti
-MODEL_SKILL_SELECTOR      → Modello per SkillSelector (Llama, no thinking mode)
-MODEL_KNOWLEDGE_SEARCH    → Modello per ContextExpander (Gemini)
+MODEL_MACRO_EXPERT              → Modello per AgnoMacroExpert (Step 1 + Step 4)
+MODEL_TECH_ORCHESTRATOR         → Modello legacy per orchestratore tecnico (se usato)
+MODEL_TECH_SPECIALISTS          → Modello per i 4 specialisti standalone
+MODEL_SKILL_SELECTOR            → Modello per SkillSelector (Llama, temperature 0.0)
+MODEL_KNOWLEDGE_SEARCH          → Modello per ContextExpander (Gemini)
 
-TEMPERATURE_*             → 0.0 per output JSON/strutturati, 0.7 per report narrativi
+TEMPERATURE_MACRO_EXPERT        → 0.7 (argomentazione strategica)
+TEMPERATURE_TECH_ORCHESTRATOR   → 0.7 (gestione team equilibrata)
+TEMPERATURE_TECH_SPECIALISTS    → 0.7 (analisi tecnica narrativa)
+TEMPERATURE_SKILL_SELECTOR      → 0.0 (selezione tool: precisione pura)
+TEMPERATURE_KNOWLEDGE_SEARCH    → 0.0 (ricerca nei libri: massima precisione)
 
-TECH_SHORT_TERM_CANDLES   → Candele 1H passate agli specialisti
-TECH_MID_TERM_CANDLES     → Candele 4H passate agli specialisti
-TECH_LONG_TERM_CANDLES    → Candele 1D passate agli specialisti
+AGENT_MACRO_ENABLED             → True/False — Attiva/disattiva AgnoMacroExpert
+AGENT_PATTERN_ENABLED           → True/False — Attiva/disattiva PatternAgent
+AGENT_TREND_ENABLED             → True/False — Attiva/disattiva TrendAgent
+AGENT_SR_ENABLED                → True/False — Attiva/disattiva SRAgent
+AGENT_VOLUME_ENABLED            → True/False — Attiva/disattiva VolumeAgent
 
-AGENT_MACRO_ENABLED       → Attiva/disattiva AgnoMacroExpert
-AGENT_PATTERN_ENABLED     → Attiva/disattiva PatternAgent
-AGENT_TREND_ENABLED       → Attiva/disattiva TrendAgent
-AGENT_SR_ENABLED          → Attiva/disattiva SRAgent
-AGENT_VOLUME_ENABLED      → Attiva/disattiva VolumeAgent
+TECHNICAL_SKILLS_DIRS           → Lista path delle 6 directory skill tecniche
+MACRO_SKILL_DIR                 → Path della skill macro-strategist
+VERDICT_SKILL_DIR               → Path della skill trading-verdict-synthesizer
 
-TECHNICAL_SKILLS_DIRS     → Lista path delle 6 directory skill tecniche
-MACRO_SKILL_DIR           → Path della skill macro-strategist
-VERDICT_SKILL_DIR         → Path della skill trading-verdict-synthesizer
+STORAGE_LOCATION                → 'local' (storage dei database agenti)
+DATABASE_PATH                   → 'storage/memory/trading_system.db'
 ```
+
+### Configurazione per Provider Remoti
+
+Quando `LLM_PROVIDER = "qwen"` o `"gemini"`, assicurati che le API keys siano presenti in `.env`:
+
+```env
+GROQ_API_KEY=<your-groq-key>
+GEMINI_API_KEY=<your-gemini-key>
+ALPACA_API_KEY=<your-alpaca-key>
+ALPACA_SECRET_KEY=<your-alpaca-secret>
+```
+
+Con `LLM_PROVIDER = "gemma4"` (default), non serve alcuna API key — Gemma 4 gira localmente su `http://localhost:8080`.
 
 ---
 
@@ -318,3 +426,9 @@ Qwen3 in thinking mode produce ragionamento interno in inglese prima della rispo
 
 Il thinking mode può essere disabilitato da `Calibrazione.QWEN_THINKING_ENABLED = False`,
 che inietta `{"enable_thinking": False}` nei `request_params` di Groq per i modelli Qwen3.
+
+---
+
+**Aggiornato**: 2026-04-21  
+**Versione**: Architettura V5 (Supervisor Multi-Agente Ibrido)  
+**Principales caratteristiche**: Throttling adattivo Groq · Differenziazione contesti specialisti · Skills Library condivisa (6 libri) · ContextBuilder pre-calcolato · Classificazione tecniche a 3 livelli (garanzia/keyword/badge)
