@@ -1,3 +1,4 @@
+from sqlalchemy import true
 import os
 import yfinance as yf
 from agno.agent import Agent
@@ -151,18 +152,31 @@ class AgnoMacroExpert:
                 LocalSkills(os.path.abspath(verdict_skill_dir), validate=False),
             ]),
             tools=[
-                # DuckDuckGo: usato per news web. Il periodo è iniettato nella query dal metodo analizza().
-                DuckDuckGoTools(fixed_max_results=getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", 10)),
-                # Alpaca News: ora integrato come tool dinamico per permettere all'IA di cercare news per più simboli.
+                # ✅ FIX: enable_news=True, enable_search=False, timelimit/region/timeout espliciti
+                DuckDuckGoTools(
+                    enable_search=True,
+                    enable_news=True,
+                    fixed_max_results=getattr(Calibrazione, "DUCKDUCKGO_NEWS_LIMIT", 10),
+                    timelimit="none",
+                    region="us-en",
+                    timeout=15,
+                    verify_ssl=True,
+                ),
+                # Alpaca News: tool dinamico per news ufficiali di mercato
                 get_alpaca_news,
-                # YFinance: solo prezzo corrente e raccomandazioni analisti.
-                # I dati storici nel periodo di analisi vengono pre-fetchati e iniettati nel prompt.
+                # YFinance: solo prezzo corrente e raccomandazioni analisti
                 YFinanceTools(enable_stock_price=True, enable_analyst_recommendations=True, enable_company_info=False),
             ],
             instructions=[
                 "Analizza lo scenario globale basandoti sui tuoi framework operativi (Skills), sulle news web, sulle notizie Alpaca e sui dati finanziari real-time.",
                 "Consulta le tue Skill ogni volta che devi approfondire un regime, un segnale o una correlazione specifica per garantire coerenza teorica.",
-                "Utilizza il tool DuckDuckGo per cercare notizie recenti sull'asset richiesto nel periodo specificato.",
+                "STEP 2 OBBLIGATORIO: Chiama SUBITO il tool duckduckgo_news per ottenere le ultime notizie del mercato. "
+                "Passa SEMPRE il NOME COMUNE dell'asset in inglese (es. 'gold', 'oil', 'bitcoin', 'sp500', 'eurusd', 'nasdaq', 'copper', 'treasury') "
+                "e NON ticker con caratteri speciali (es. NON 'GC=F', 'CL=F', '^GSPC', 'DX-Y.NYB'). "
+                "Se ritieni utile aggiungere contesto, effettua una seconda chiamata con il nome dell'indice di riferimento (es. 'sp500' per asset azionari)."
+                "NON saltare questo step. NON considerare Alpaca come sostituto. "
+                "DuckDuckGo e Alpaca sono fonti DIVERSE e COMPLEMENTARI: entrambe DEVONO essere chiamate. "
+                "Per ogni notizia riporta titolo tradotto in italiano, link e sintesi impatto.",
                 "Utilizza il tool get_alpaca_news per ottenere le notizie ufficiali di mercato. "
                 "Passa SEMPRE il NOME COMUNE dell'asset in inglese (es. 'gold', 'oil', 'bitcoin', 'sp500', 'eurusd', 'nasdaq', 'copper', 'treasury') "
                 "e NON ticker con caratteri speciali (es. NON 'GC=F', 'CL=F', '^GSPC', 'DX-Y.NYB'). "
@@ -205,7 +219,6 @@ class AgnoMacroExpert:
 
         # ── 1. Pre-fetch Alpaca News: RIMOSSO (Ora è un tool dinamico) ────
         # L'agente chiamerà get_alpaca_news durante l'analisi se necessario.
-
 
         # ── 2. Pre-fetch YFinance storico (date esatte garantite) ─────────
         yfinance_section = ""
