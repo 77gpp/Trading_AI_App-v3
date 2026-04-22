@@ -818,6 +818,69 @@ Frontend Display: ⚠️ 40-60% (improve con L1 guarantee + L2/L3)
 
 ---
 
+## Integrazione Architettura V5 (2026-04-21)
+
+A partire dal 21 aprile 2026, il sistema introduce due nuovi componenti che si integrano con l'estrazione e selezione delle skill:
+
+### indicators_engine.py
+
+Calcola **misure tecniche obiettive** prima della preparazione dei contesti specializzati:
+
+```python
+from indicators_engine import compute
+
+indicators = compute(data_dict)  # {1h, 4h, 1d}
+# Returns: {1h: {RSI, MACD, Stochastic, SMA, EMA, Bollinger, ATR, OBV}, ...}
+```
+
+**Indicatori pre-calcolati:**
+- RSI 14, MACD (12/26/9), Stochastic (14/3), Williams %R
+- SMA (20/50/100/200), EMA (9/20/50/100)
+- Bollinger Bands (20/2), ATR 14, OBV, Swing Points
+
+**Ruolo nel flusso:**
+1. SkillSelector.select_tools() → selezione skill grafiche (~50 ID)
+2. **indicators_engine.compute()** ← NUOVO
+3. ContextBuilder.build(domain) ← differenziazione per dominio
+4. 4 Agenti ricevono dati FILTRATI + skills_guidance completa
+
+**Interazione con Skill:**
+- Indicatori pre-calcolati sono "oggettivi" — non interpretazioni
+- Skill degli agenti (pattern, trend, SR, volume) li usano per giudizio
+- Es: SR Analyst riceve POC dalla indicators_engine, non oscillatori (per indipendenza)
+
+### context_builder.py
+
+Assembla **contesti differenziati** per ogni specialista. Preserva indipendenza di giudizio filtrando indicatori non rilevanti.
+
+```python
+from context_builder import ContextBuilder
+
+ctx_builder = ContextBuilder(data_dict, indicators)
+ctx_per_agent = {
+    "pattern": ctx_builder.build("pattern"),
+    "trend":   ctx_builder.build("trend"),
+    "sr":      ctx_builder.build("sr"),
+    "volume":  ctx_builder.build("volume"),
+}
+```
+
+**Pattern di Filtraggio (_AGENT_BLOCKS):**
+- **Pattern:** OHLCV + swing → 0 medie, 0 oscillatori (massima indipendenza)
+- **Trend:** OHLCV + medie + oscillatori → visione completa del trend
+- **SR:** OHLCV + medie + Bollinger + ATR + POC → NO oscillatori (per indipendenza)
+- **Volume:** OHLCV + OBV + oscillatori → NO medie (indipendenza), riceve output altri 3
+
+**Implicazione per Skill Selection:**
+Quando gli agenti ricevono skills_guidance (TUTTE le 485 skill per dominio), i dati tech che vedono sono già filtrati. Questo significa:
+- Pattern Analyst consulta 439 skill ma su dati OHLCV+swing (non influenzato da medie)
+- SR Analyst consulta 84 skill ma senza oscillatori (non distorto da momentum)
+- Volume Analyst riceve 485 skill + output degli altri (ha veto power)
+
+Per dettagli completi su context filtering, vedi **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)** e **[CLAUDE.md](../CLAUDE.md)** sezione "Architettura V5".
+
+---
+
 ## Conclusione
 
 **Le 485 skill NON vengono "abbandonate"** — sono INTEGRATE COMPLETAMENTE nel backend:
@@ -826,16 +889,24 @@ Frontend Display: ⚠️ 40-60% (improve con L1 guarantee + L2/L3)
 ✅ Tutte assegnate a dominio (100%)  
 ✅ Tutte incluse in skills_guidance (100%)  
 ✅ Tutte obbligatorie per ogni agente (100%)  
+✅ Applicate su dati FILTRATI per dominio (V5 architecture)  
 ⚠️ ~40-60% visibili nel frontend (L2/L3 text-matching imperfetto)
 
-**Il vero problema non è "usiamo solo 50 skill"** — è "come facciamo sapere al frontend quale delle 485 è stata VERAMENTE analizzata dall'agente?"
+**Flusso V5 Completo:**
+```
+indicators_engine.compute() → misure obiettive (RSI, MACD, SMA, etc.)
+    ↓
+ContextBuilder.build(domain) → filtra per specialista via _AGENT_BLOCKS
+    ↓
+Agente riceve: ctx_filtrato + skills_guidance (485 skill) + macro_sentiment
+    ↓
+Analizza skill SEGUENDO istruzioni su dati DIFFERENZIATI per il suo dominio
+```
 
-**Soluzione implementata:** Three-Level Detection (L1+L2+L3) massimizza la visibilità mantenendo integrità semantica.
-
-**Prossimo passo:** Testare su backtesting reale e misurare frontend coverage % effettiva.
+**Il vero valore:** Non è "usiamo tutte le 485 skill" — è "ogni specialista riceve SOLO i dati rilevanti al suo dominio, preservando indipendenza di giudizio".
 
 ---
 
-**Last Updated:** 2026-04-15  
+**Last Updated:** 2026-04-22  
 **Author:** Claude Code (AI Agent)  
-**Status:** ANALISI COMPLETA
+**Status:** ANALISI COMPLETA + V5 Architecture Integration

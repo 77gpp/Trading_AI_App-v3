@@ -222,6 +222,60 @@ Coverage: 100.0%
 
 ---
 
+## 6.5 V5 Architecture: Context Differentiation per Specialista
+
+A partire dal 21 aprile 2026, l'architettura V5 introduce **context_builder.py** che filtra i dati tecnici ricevuti da ogni specialista in base al suo dominio. Questo preserva l'indipendenza di giudizio.
+
+### Filtraggio Dati per Specialista (_AGENT_BLOCKS)
+
+```python
+_AGENT_BLOCKS = {
+    "pattern": {
+        "moving_averages": False,    # Pattern non vede medie
+        "oscillators": False,         # Pattern non vede oscillatori
+        "bollinger_atr": False,       # Pattern non vede Bollinger/ATR
+        "swing_structure": True,      # Pattern vede swing points
+    },
+    "trend": {
+        "moving_averages": True,      # Trend vede SMA/EMA
+        "oscillators": True,          # Trend vede RSI/MACD/Stochastic
+        "bollinger_atr": True,        # Trend vede Bollinger/ATR
+        "swing_structure": True,      # Trend vede swing points
+    },
+    "sr": {
+        "moving_averages": True,      # SR vede medie (per Fib/Pivot)
+        "oscillators": False,         # SR NON vede oscillatori
+        "bollinger_atr": True,        # SR vede Bollinger/ATR
+        "volume_metrics": True,       # SR vede POC
+        "swing_structure": True,      # SR vede swing points
+    },
+    "volume": {
+        "moving_averages": False,     # Volume NON vede medie
+        "oscillators": True,          # Volume vede oscillatori
+        "bollinger_atr": True,        # Volume vede Bollinger/ATR
+        "volume_metrics": True,       # Volume vede OBV/POC
+        "swing_structure": False,     # Volume non vede swing
+    },
+}
+```
+
+### Implicazioni per Assignment Matrix
+
+La tabella di assignment rimane **identica** (Pattern 439, Trend 84, SR 84, Volume 485), ma ora gli specialisti ricevono:
+
+| Specialista | Skill | Dati Ricevuti |
+|---|---|---|
+| **Pattern Analyst** | 439 skill | OHLCV + swing points (NO medie, NO oscillatori) |
+| **Trend Analyst** | 84 skill | OHLCV + SMA/EMA + RSI/MACD + Bollinger + ATR |
+| **SR Analyst** | 84 skill | OHLCV + SMA/EMA + Bollinger + ATR + POC (NO oscillatori) |
+| **Volume Analyst** | 485 skill | OHLCV + OBV + RSI/MACD (NO medie) + output altri 3 |
+
+**Beneficio:** Ogni specialista consulta TUTTE le skill del suo dominio, ma applicate su **dati differenziati** che preservano l'indipendenza di giudizio.
+
+Per dettagli completi, vedi **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)**.
+
+---
+
 ## 7. Processo di Verifica Automatica
 
 Esegui audit periodico:
@@ -265,4 +319,9 @@ python3 agents/audit_skills_mapping.py --fix-report      # Report correttivi (TO
 ---
 
 **Generated:** agents/audit_skills_mapping.py  
+**Updated:** 2026-04-22  
+**Status:** ✅ COMPLETE + V5 Architecture Integration (context differentiation, indicators_engine, context_builder)  
+
+**Primary Documentation Reference:** [CLAUDE.md](../CLAUDE.md) (full architecture overview)  
+**Context Filtering Details:** [CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)
 **Last Audit:** 2026-04-15 12:45 UTC

@@ -354,5 +354,39 @@ python3 agents/audit_skills_mapping.py
 
 ---
 
+## V5 Architecture Integration (2026-04-22)
+
+Dopo l'introduzione dell'architettura V5 (21 aprile 2026), le 3 domande rimangono **completamente valide** e verificate:
+
+### Estrazione (Domanda 1) ✅
+- **Prima:** 485 tecniche estratte da SKILL.md
+- **Dopo:** 485 tecniche estratte + indicators_engine pre-calcola misure obiettive
+- **Stato:** Estrazione rimane al 100%
+
+### Assegnazione (Domanda 2) ✅
+- **Prima:** 485 tecniche assegnate via BOOK_DOMAIN_MAP
+- **Dopo:** 485 tecniche assegnate + context_builder filtra dati per specialista
+- **Stato:** Assegnazione rimane al 100%, 0 orfane
+
+### Coerenza (Domanda 3) ✅
+- **Prima:** 88% match esatto, 100% funzionale
+- **Dopo:** Agenti ricevono TUTTE le 485 skill per dominio + dati differenziati via _AGENT_BLOCKS
+- **Stato:** Coerenza preservata e **rafforzata** dalla differenziazione dei dati
+
+### Nuovo Valore V5
+
+L'architettura V5 aggiunge un layer di **context differentiation** che:
+1. Preserva l'indipendenza di giudizio di ogni specialista
+2. Filtra indicatori non rilevanti per il dominio
+3. Mantiene l'obbligatorietà dell'analisi di TUTTE le skill
+4. Riduce bias derivanti da strumenti non rilevanti
+
+Per dettagli su come ogni specialista riceve dati differenziati, vedi:
+- **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)** — Complete guide a context filtering
+- **[CLAUDE.md](../CLAUDE.md)** — Architecture overview
+
+---
+
 **Generato:** 2026-04-15  
-**Audit Status:** ✅ PASSED (485/485 tecniche, 100% copertura, 0 orfane)
+**Aggiornato:** 2026-04-22  
+**Audit Status:** ✅ PASSED (485/485 tecniche, 100% copertura, 0 orfane) + V5 Compatible

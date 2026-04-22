@@ -271,5 +271,72 @@ TOTAL UNIQUE: 485 techniques ✅ (100% coverage, 0 orphaned)
 
 ---
 
-**Last Updated:** 2026-04-15  
-**Status:** ✅ VERIFIED — All 485 techniques assigned, zero orphaned, 100% coverage
+## V5 Architecture Integration: Context Differentiation
+
+A partire da 2026-04-21, l'architettura V5 introduce **context_builder.py** che differenzia il contesto ricevuto da ogni specialista in base al suo dominio. Questo preserva l'indipendenza di giudizio filtrando dati non rilevanti.
+
+### Come Funziona la Differenziazione per Dominio
+
+Ogni agente riceve un subset di indicatori tecnici in base al suo ruolo, non l'intero set:
+
+```python
+_AGENT_BLOCKS = {
+    "pattern": {
+        "moving_averages": False,    # NO medie mobili
+        "oscillators": False,         # NO oscillatori
+        "bollinger_atr": False,       # NO Bollinger, ATR
+        "swing_structure": True,      # SI swing points
+    },
+    "trend": {
+        "moving_averages": True,      # SI medie (SMA, EMA)
+        "oscillators": True,          # SI oscillatori
+        "bollinger_atr": True,        # SI Bollinger, ATR
+        "swing_structure": True,      # SI swing points
+    },
+    "sr": {
+        "moving_averages": True,      # SI medie
+        "oscillators": False,         # NO oscillatori (indipendenza)
+        "bollinger_atr": True,        # SI Bollinger, ATR
+        "volume_metrics": True,       # SI POC
+        "swing_structure": True,      # SI swing points
+    },
+    "volume": {
+        "moving_averages": False,     # NO medie (massima indipendenza)
+        "oscillators": True,          # SI oscillatori
+        "bollinger_atr": True,        # SI Bollinger, ATR
+        "volume_metrics": True,       # SI OBV, POC
+        "swing_structure": False,     # NO swing
+    },
+}
+```
+
+### Implicazioni per l'Assegnazione di Skill
+
+**Pattern Analyst (439 skill):**
+- Riceve: OHLCV + swing points only
+- Dato limitato preserva indipendenza massima
+- Skill dalla matrice: candlestick, chart patterns, entry logic
+- Nessuna distrazione da medie o oscillatori
+
+**Trend Analyst (84 skill):**
+- Riceve: OHLCV + medie mobili + oscillatori
+- Context completo per valutare momentum e direzione
+- Skill dalla matrice: SMA, EMA, trend analysis, momentum
+
+**SR Analyst (84 skill):**
+- Riceve: OHLCV + medie + Bollinger + ATR + POC (NO oscillatori)
+- Può mappare livelli senza distorsione da momentum
+- Skill dalla matrice: Fibonacci, pivot, zone, confluenza
+
+**Volume Analyst (485 skill = TUTTI):**
+- Riceve: OHLCV + oscillatori + volume metrics (NO medie)
+- Input speciali: output dei 3 specialisti precedenti
+- Ruolo: validare o invalidare con veto power
+- Skill dalla matrice: RSI, MACD, divergenze, conferme
+
+Per dettagli completi su context filtering, vedi **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)**.
+
+---
+
+**Last Updated:** 2026-04-22  
+**Status:** ✅ VERIFIED — All 485 techniques assigned, zero orphaned, 100% coverage + V5 Architecture Integration

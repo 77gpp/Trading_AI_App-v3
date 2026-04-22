@@ -1,6 +1,49 @@
-# Skills Architecture Diagram
+# Architecture Diagram — Trading V5
 
-## Data Flow: Dall'Estrazione all'Agente
+## Complete Data Flow (Architettura V5 Completa)
+
+```
+┌──────────────────────┐
+│ DataFetcher          │ Yahoo Finance OHLCV (1H, 4H, 1D)
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────────────────────────────────────────────┐
+│ SupervisorAgent.analiza_asset()                              │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│ [Step 1] AgnoMacroExpert → macro_sentiment                   │
+│                                                               │
+│ [Step 1.5] SkillSelector → chosen_tools + skills_guidance   │
+│                                                               │
+│ [Step 2] ContextExpanderAgent → knowledge_context           │
+│                                                               │
+│ [Step 2.5] indicators_engine.compute(data) → RSI, MACD... │
+│                                                               │
+│ [Step 2.6] ContextBuilder.build(domain) × 4 → ctx_per_agent│
+│            ├─ Pattern: OHLCV + swing (NO medie, NO osc)    │
+│            ├─ Trend: OHLCV + medie + oscillatori            │
+│            ├─ SR: OHLCV + Bollinger + ATR + POC             │
+│            └─ Volume: OHLCV + OBV + oscillatori             │
+│                                                               │
+│ [Step 3] 4 Specialisti (in sequenza):                        │
+│          PatternAgent, TrendAgent, SRAgent, VolumeAgent     │
+│          (Volume è FILTRO FINALE con veto power)           │
+│                                                               │
+│ [Step 4] AgnoMacroExpert.sintetizza_verdetto()             │
+│          → Bias · Entry · SL · TP 1 · TP 2                 │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+           │
+           ▼
+     Report Markdown
+```
+
+---
+
+## Skills Architecture Diagram
+
+### Data Flow: Dall'Estrazione all'Agente
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐

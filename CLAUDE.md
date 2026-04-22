@@ -48,24 +48,125 @@ Controlli chiave:
 
 ## Architettura V5
 
-Il sistema usa una pipeline multi-agente sequenziale orchestrata da SupervisorAgent.
+Il sistema usa una pipeline multi-agente sequenziale orchestrata da SupervisorAgent. Ogni step esegue con throttling adattivo Groq che legge il tempo di attesa reale dagli header di risposta.
 
-```text
-DataFetcher (Yahoo Finance OHLCV: 1H, 4H, 1D)
-    ↓
-SupervisorAgent (agents/supervisor_agent.py)
-    ├── Step 1: AgnoMacroExpert → macro sentiment + news
-    ├── Step 1.5: SkillSelector → sceglie libri e tecniche per l’asset
-    ├── Step 2: ContextExpanderAgent → ricerca semantica nei PDF della skills_library
-    └── Steps 3-5: AgnoTechnicalTeam.analizza_specialista() × 4
-        ├── Pattern Analyst
-        ├── Trend Analyst
-        ├── SR Analyst
-        └── Volume Analyst ← filtro finale e veto se i volumi divergono
-    ↓
-Step 4: AgnoMacroExpert.sintetizza_verdetto()
-    ↓
-Report finale Markdown con Bias / Entry / SL / Target 1 / Target 2 oppure NO TRADE
+### Flusso di Esecuzione Sequenziale
+
+```
+DataFetcher.get_mtf_data()
+   │  Dati OHLCV: 1H · 4H · 1D (Yahoo Finance)
+   │
+   ▼
+SupervisorAgent.analizza_asset()
+   │
+   ├─ [Step 1] AgnoMacroExpert.analizza()
+   │     ├─ YFinance: prezzi real-time, variazione %, volumi
+   │     ├─ DuckDuckGo: news web, sentiment
+   │     ├─ AlpacaNews: notizie istituzionali
+   │     ├─ Skill: macro-strategist (framework Dalio/Soros/Murphy)
+   │     └─ → macro_sentiment (testo Markdown con Regime/Bias)
+   │
+   ├─ [Step 1.5] SkillSelector.select_tools()
+   │     ├─ Input: nome_asset · macro_sentiment · ultimi 5 candles
+   │     ├─ Catalogo: 485 tecniche da 6 libri
+   │     ├─ Output: chosen_tools {pattern[], trend[], sr[], volume[]}
+   │     └─ → skills_guidance (istruzioni per ogni specialista)
+   │
+   ├─ [Step 2] ContextExpanderAgent.search_knowledge()
+   │     ├─ Gemini File API: ricerca semantica nei PDF dei libri
+   │     └─ → knowledge_context (estratti rilevanti per l’asset)
+   │
+   ├─ [Preparazione Indicatori Tecnici Obiettivi]
+   │     ├─ indicators_engine.compute(data_dict)
+   │     └─ → RSI, MACD, Stochastic, SMA, EMA, Bollinger, ATR, OBV
+   │
+   ├─ [Preparazione Contesti Specializzati]
+   │     ├─ ContextBuilder differenzia il contesto per ciascun specialista
+   │     ├─ Pattern: OHLCV + swing (NO medie, NO oscillatori)
+   │     ├─ Trend: OHLCV + medie + oscillatori
+   │     ├─ SR: OHLCV + Bollinger + ATR + POC
+   │     └─ Volume: OHLCV + OBV + oscillatori (NO medie)
+   │
+   ├─ [Step 3] I 4 Specialisti Tecnici (in sequenza)
+   │     ├─ PatternAgent.analizza(ctx_pattern, macro_sentiment, skills_guidance)
+   │     ├─ TrendAgent.analizza(ctx_trend, macro_sentiment, skills_guidance)
+   │     ├─ SRAgent.analizza(ctx_sr, macro_sentiment, skills_guidance)
+   │     └─ VolumeAgent.analizza(ctx_volume, macro_sentiment, skills_guidance, output_altri_3)
+   │           ↑ FILTRO FINALE: veto se volume ≠ movimento
+   │
+   ├─ [Step 4] AgnoMacroExpert.sintetizza_verdetto()
+   │     ├─ Riceve: macro_sentiment + output dei 4 specialisti
+   │     ├─ Skill: trading-verdict-synthesizer (7 fasi, 14 no-trade filters)
+   │     └─ → Bias · Entry · SL · Target 1 · Target 2
+   │
+   └─ Assemblaggio report Markdown finale
+```
+
+### Organigramma degli Agenti
+
+```
+┌─────────────────────────────────────────────────────┐
+│         SUPERVISOR AGENT (Controller)               │
+│    agents/supervisor_agent.py · SupervisorAgent     │
+└─────┬──────────┬─────────────┬──────────┬───────────┘
+      │          │             │          │
+      ▼ Step 1   ▼ Step 1.5    ▼ Step 2  ▼ Step 3
+  MACRO      SKILL        CONTEXT     TECHNICAL
+  EXPERT     SELECTOR     EXPANDER    DESK (4)
+      │          │             │          │
+      └─────────────────────────┴──────────┴──→ [Step 4] VERDETTO
+```
+
+## Indicators Engine
+
+Il file `indicators_engine.py` pre-calcola misure tecniche obiettive da dati OHLCV. Viene richiamato dopo SkillSelector e prima della preparazione dei contesti specializzati.
+
+**Indicatori calcolati:**
+- RSI 14, MACD (12/26/9), Stochastic (14/3), Williams %R
+- SMA (20/50/100/200), EMA (9/20/50/100)
+- Bollinger Bands (20/2), ATR 14
+- OBV (On-Balance Volume), Swing Highs/Lows
+
+**Principio:** Calcola solo misure oggettive, non interpretazioni. I pattern grafici e i livelli S/R sono delegati agli agenti.
+
+**Utilizzo:**
+```python
+from indicators_engine import compute
+indicators = compute(data_dict)  # data_dict = {1h, 4h, 1d}
+```
+
+Ogni specialista riceve subset di questi indicatori in base al suo dominio, non tutti.
+
+## Context Builder
+
+Il file `context_builder.py` assembla contesti differenziati per ogni specialista. Preserva l'indipendenza di giudizio filtrando i dati rilevanti per ciascun dominio.
+
+**Strategie di filtraggio per specialista:**
+```python
+_AGENT_BLOCKS = {
+    "pattern": {"moving_averages": False, "oscillators": False, "bollinger_atr": False, ...},
+    "trend":   {"moving_averages": True,  "oscillators": True,  "bollinger_atr": True,  ...},
+    "sr":      {"moving_averages": True,  "oscillators": False, "bollinger_atr": True,  ...},
+    "volume":  {"moving_averages": False, "oscillators": True,  "bollinger_atr": True,  ...},
+}
+```
+
+**Benefici della differenziazione:**
+1. **Pattern Analyst**: OHLCV + swing patterns → massima indipendenza (no medie, no oscillatori)
+2. **Trend Analyst**: OHLCV + medie + oscillatori → valuta forza direzionale
+3. **SR Analyst**: OHLCV + Bollinger + ATR → mappa livelli senza momentum
+4. **Volume Analyst**: OHLCV + OBV + oscillatori → filtro finale che valida gli altri (NO medie per indipendenza)
+
+**Utilizzo:**
+```python
+from context_builder import ContextBuilder
+ctx_builder = ContextBuilder(data_dict, indicators)
+ctx_per_agent = {
+    "pattern": ctx_builder.build("pattern"),
+    "trend":   ctx_builder.build("trend"),
+    "sr":      ctx_builder.build("sr"),
+    "volume":  ctx_builder.build("volume"),
+}
 ```
 
 ## Throttling adattivo Groq
@@ -74,6 +175,8 @@ Il vecchio sleep fisso di 25 secondi è stato rimosso. Il sistema usa ora una lo
 - legge gli header di risposta come remaining tokens e retry-after;
 - applica retry esponenziale in caso di 429;
 - non usa pause fisse tra le chiamate.
+
+**Impatto:** Prima ~150s overhead anche con basso token count, ora attesa proporzionale al rate limit reale.
 
 ## Skills Library
 
@@ -123,10 +226,12 @@ Il report finale deve essere sempre in italiano.
 | Core | agents/supervisor_agent.py | Controller principale |
 | Macro | agents/agno_macro_expert.py | Step macro e sintesi verdetto |
 | Skills | agents/skill_selector.py | Selezione tecniche e guidance |
+| Indicators | indicators_engine.py | Pre-calcola RSI, MACD, SMA, EMA, Bollinger, ATR, OBV |
+| Context | context_builder.py | Assembla contesti differenziati per ogni specialista |
 | Search | agents/context_expander_agent.py | Ricerca semantica nei PDF |
 | Specialists | agents/specialists/*.py | Pattern, Trend, SR, Volume |
 | Skills Lib | skills_library/ | Skill Agno dei 6 libri |
 | Frontend | frontend/app_web.py | Flask UI e backtesting |
 | Storage | storage/memory/trading_system.db | Memoria SQLite |
 
-Aggiornato: 2026-04-21. Architettura V5, throttling adattivo Groq, skills audit 100%.
+Aggiornato: 2026-04-22. Architettura V5 con indicators_engine + context_builder, throttling adattivo Groq, skills audit 100%.

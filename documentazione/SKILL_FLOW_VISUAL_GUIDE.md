@@ -1,6 +1,6 @@
 # Skill Extraction & Selection — Visual Flow Guide
 
-## 🔄 End-to-End Flow: Da SKILL.md al Frontend
+## 🔄 End-to-End Flow: Da SKILL.md al Frontend (V5 Architecture)
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -31,6 +31,20 @@
 │                                                                           │
 │  Risultato: 485 skill assegnate, 0 orfane ✅                            │
 │  Coverage: 100% — tutte le skill sono OBBLIGATORIE per almeno 1 agente │
+│                                                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FASE 2.5: INDICATORI TECNICI OBIETTIVI (NEW V5)                         │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  indicators_engine.compute(data_dict)                                    │
+│  ├─ Input: OHLCV da {1h, 4h, 1d}                                        │
+│  └─ Output: RSI, MACD, Stochastic, Williams %R, SMA, EMA,              │
+│             Bollinger, ATR, OBV, Swing Highs/Lows                       │
+│                                                                           │
+│  Questi indicatori sono "misure obiettive" NON interpretazioni          │
+│  Verranno FILTRATI per specialista da context_builder                   │
 │                                                                           │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -108,6 +122,28 @@
 │  ⚠️ NOTA: LLM sceglie ~50 strumenti su 485 skill                        │
 │     MA questi sono SOLO per il grafico. Le 485 skill TUTTE               │
 │     sono state già mandate ai 4 agenti via skills_guidance!             │
+│                                                                           │
+└─────────────────────────────────────────────────────────────────────────┘
+                                    ↓
+┌─────────────────────────────────────────────────────────────────────────┐
+│ FASE 4.5: CONTEXT BUILDER — DIFFERENZIAZIONE PER SPECIALISTA (NEW V5)   │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                           │
+│  ContextBuilder.build(domain) filtra indicatori via _AGENT_BLOCKS        │
+│                                                                           │
+│  Pattern Analyst ← OHLCV + swing points (NO medie, NO oscillatori)     │
+│  Trend Analyst  ← OHLCV + SMA/EMA + RSI/MACD/Stochastic + ATR/Bollinger
+│  SR Analyst     ← OHLCV + SMA/EMA + Bollinger + ATR + POC (NO oscillatori)
+│  Volume Analyst ← OHLCV + OBV + oscillatori (NO medie)                  │
+│                                                                           │
+│  Benefici:                                                               │
+│  ✓ Pattern Analyst non vede medie che potrebbero distoglierlo            │
+│  ✓ Trend Analyst ha tutta la visione oscillatori+medie                   │
+│  ✓ SR Analyst non vede oscillatori (per indipendenza dai livelli)       │
+│  ✓ Volume Analyst ha veto power ma indipendente da medie                 │
+│                                                                           │
+│  Ogni specialista riceve TUTTE le 485 skill via skills_guidance,         │
+│  ma applicate su dati DIFFERENZIATI per il suo dominio                   │
 │                                                                           │
 └─────────────────────────────────────────────────────────────────────────┘
                                     ↓
@@ -234,22 +270,25 @@
 
 ---
 
-## 📊 Tabella Riassuntiva: Utilizzo delle 485 Skill
+## 📊 Tabella Riassuntiva: Utilizzo delle 485 Skill (V5 Architecture)
 
 | Stadio | Componente | # Skill | % Totale | Stato |
 |--------|-----------|---------|----------|-------|
 | **1. Estrazione** | _load_technique_catalog() | 485 | 100% | ✅ Tutte estratte |
 | **2. Assegnazione** | BOOK_DOMAIN_MAP | 485 | 100% | ✅ Tutte assegnate |
+| **2.5. Indicatori Tech** | indicators_engine.compute() | - | - | ✅ RSI, MACD, SMA, EMA, Bollinger, ATR, OBV, Swing |
 | **3. Guidance** | skills_guidance[pattern/trend/sr/osc] | 485 | 100% | ✅ Tutte mandate |
 | **4. Selezione AI** | AVAILABLE_TOOLS (scelta LLM) | ~50 | 10% | ⚠️ Solo per grafico |
-| **5. Passaggio Agenti** | Agent.analizza(skills_guidance) | 485 | 100% | ✅ Obbligatorie |
+| **4.5. Context Builder** | context_builder.build(domain) | - | - | ✅ Filtra dati per specialista via _AGENT_BLOCKS |
+| **5. Passaggio Agenti** | Agent.analizza(skills_guidance) | 485 | 100% | ✅ Obbligatorie su dati filtrati |
 | **6. Rilevamento** | L1+L2+L3 text-matching | ~100-150 | 20-30% | ⚠️ Menzioni esplicite |
 | **7. Frontend** | applied_techniques_per_domain | ~100-150 | 20-30% | ⚠️ Visibili nel UI |
 
 **Interpretazione:**
 - ✅ **100%** di estrazione, assegnazione, guidance, obbligatorietà
+- ✅ **100%** di filtraggio dati per dominio (V5 context differentiation)
 - ⚠️ **20-30%** di visibilità nel frontend (a causa di text-matching imperfetto)
-- **IMPORTANTE:** Il 70-80% "non visibile" nel frontend è stato comunque consultato, analizzato e valutato dagli agenti
+- **IMPORTANTE:** Il 70-80% "non visibile" nel frontend è stato comunque consultato, analizzato e valutato dagli agenti su dati DIFFERENZIATI per il loro dominio
 
 ---
 
@@ -328,5 +367,20 @@ Garanzia: Impossibile ignorare una skill — l'agente DEVE almeno valutarla (anc
 
 ---
 
-**Last Updated:** 2026-04-15  
-**Visual Guide Status:** ✅ COMPLETE
+---
+
+## V5 Architecture Integration (2026-04-22)
+
+Il nuovo flusso V5 introduce 2 stage critici tra la selezione AI e il passaggio agli agenti:
+
+1. **indicators_engine.compute()**: Pre-calcola misure obiettive (RSI, MACD, SMA, etc.)
+2. **context_builder.build(domain)**: Filtra indicatori per specialista via _AGENT_BLOCKS
+
+Questo preserva l'indipendenza di giudizio di ogni specialista mentre rimane obbligatoria l'analisi di TUTTE le 485 skill.
+
+Per dettagli completi su context filtering, vedi **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)** e **[CLAUDE.md](../CLAUDE.md)**.
+
+---
+
+**Last Updated:** 2026-04-22  
+**Visual Guide Status:** ✅ COMPLETE + V5 Architecture Integration

@@ -1,6 +1,11 @@
-# Quick Reference — Skills Architecture
+# Quick Reference — Trading System V5
 
-## ✅ 3 Core Questions Answered
+**For full architecture overview, see: [CLAUDE.md](../CLAUDE.md)**  
+**For context filtering details, see: [CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)**
+
+---
+
+## ✅ 3 Core Questions on Skills Answered
 
 ### 1️⃣ Are ALL skills extracted from each book?
 
@@ -203,12 +208,16 @@ python3 agents/audit_skills_mapping.py
 
 | File | Purpose |
 |------|---------|
+| **[CLAUDE.md](../CLAUDE.md)** | **Primary guide: Full architecture, configuration, all components** |
+| **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)** | **How context is differentiated per specialist (NEW)** |
+| `indicators_engine.py` | Pre-calculates RSI, MACD, SMA, EMA, Bollinger, ATR, OBV |
+| `context_builder.py` | Assembles domain-specific contexts for each specialist |
 | `agents/skill_selector.py` | Extraction + mapping logic |
 | `agents/audit_skills_mapping.py` | Audit tool (run before deploy) |
 | `BOOK_DOMAIN_MAP` (in skill_selector.py) | Domain assignment source of truth |
 | `SKILLS_MAPPING_AUDIT.md` | Detailed mapping table per book |
 | `SKILL_EXTRACTION_VERIFICATION.md` | Answers to 3 core questions |
-| `ARCHITECTURE_DIAGRAM.md` | Data flow visualization |
+| `ARCHITECTURE_DIAGRAM.md` | Data flow visualization (updated with V5 flow) |
 
 ---
 
@@ -228,7 +237,8 @@ python3 frontend/app_web.py
 
 ---
 
-**Last Updated:** 2026-04-15  
+**Last Updated:** 2026-04-22  
+**Architecture:** V5 (Supervisor Multi-Agent + indicators_engine + context_builder)  
 **Audit Status:** ✅ PASSED (485/485, 100% coverage, 0 orphaned)
 
 ---

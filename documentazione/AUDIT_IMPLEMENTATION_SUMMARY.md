@@ -305,12 +305,52 @@ memory/skills_architecture.md (project notes)
 
 ---
 
+## Integrazione V5 Architecture (2026-04-22)
+
+L'audit system rimane **completamente valido** dopo l'introduzione dell'architettura V5 (21 aprile 2026):
+
+### Cosa Cambia
+1. **indicators_engine.py:** Nuovo componente che pre-calcola misure tecniche obiettive
+2. **context_builder.py:** Nuovo componente che differenzia contesti per specialista
+3. **ContextExpanderAgent:** Nuovo step che arricchisce contesto con ricerca semantica
+
+### Cosa Rimane Uguale
+✅ Audit continua a verificare che **tutte le 485 skill siano estratte e assegnate**  
+✅ Skills_guidance rimane lo stesso (TUTTE le 485 skill per dominio)  
+✅ L'obbligatorietà per gli agenti rimane  
+✅ BOOK_DOMAIN_MAP è ancora la fonte di verità  
+
+### Flusso V5 con Audit
+```
+┌─ SkillSelector.select_tools()
+│  ├─ _load_technique_catalog() → 485 skill estratte
+│  ├─ BOOK_DOMAIN_MAP → assegnazione domini
+│  └─ audit_skills_mapping.py ← verifica 100% coverage
+│
+├─ indicators_engine.compute() → RSI, MACD, SMA, EMA, Bollinger, ATR, OBV
+│
+├─ ContextBuilder.build(domain) → filtra dati via _AGENT_BLOCKS
+│
+└─ 4 Agenti ricevono:
+   ├─ skills_guidance[domain] (485 per dominio)
+   ├─ ctx_filtrato (differenziato per domain)
+   └─ macro_sentiment
+```
+
+L'audit verifica che la "base di conoscenza" (skills_guidance) rimanga **completa** indipendentemente dal filtraggio dei dati tecnici.
+
+Per dettagli su context filtering, vedi **[CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)** e **[CLAUDE.md](../CLAUDE.md)**.
+
+---
+
 **Created:** 2026-04-15 12:45 UTC  
-**Status:** ✅ COMPLETE  
+**Updated:** 2026-04-22  
+**Status:** ✅ COMPLETE + V5 Architecture Compatible  
 **Exit Code:** 0 (PASSED)
 
 ---
 
 *For quick reference, see [QUICK_REFERENCE.md](QUICK_REFERENCE.md)*  
 *For detailed mapping, see [SKILLS_MAPPING_AUDIT.md](SKILLS_MAPPING_AUDIT.md)*  
-*For architecture overview, see [ARCHITECTURE_DIAGRAM.md](ARCHITECTURE_DIAGRAM.md)*
+*For architecture overview, see [CLAUDE.md](../CLAUDE.md) (PRIMARY)*  
+*For context filtering details, see [CONTEXT_FILTERING.md](CONTEXT_FILTERING.md)*
