@@ -235,3 +235,5 @@ Il report finale deve essere sempre in italiano.
 | Storage | storage/memory/trading_system.db | Memoria SQLite |
 
 Aggiornato: 2026-04-22. Architettura V5 con indicators_engine + context_builder, throttling adattivo Groq, skills audit 100%.
+
+Nella chat di dialogo rispondimi sempre in italiano 

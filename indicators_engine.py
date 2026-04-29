@@ -157,6 +157,9 @@ def _compute_tf(df: pd.DataFrame) -> dict:
     # ── OBV ───────────────────────────────────────────────────────────────────
     ind["obv"] = _obv(close, volume)
 
+    # ── VWAP (anchored to period start) ──────────────────────────────────────
+    ind["vwap"] = _vwap(high, low, close, volume)
+
     return ind
 
 
@@ -187,3 +190,10 @@ def _atr(high: pd.Series, low: pd.Series, close: pd.Series, period: int) -> pd.S
 def _obv(close: pd.Series, volume: pd.Series) -> pd.Series:
     direction = np.sign(close.diff()).fillna(0)
     return (direction * volume).cumsum()
+
+
+def _vwap(high: pd.Series, low: pd.Series, close: pd.Series, volume: pd.Series) -> pd.Series:
+    """VWAP anchored to the start of the period (not reset daily/weekly)."""
+    tp  = (high + low + close) / 3
+    vol = volume.replace(0, np.nan)
+    return (tp * vol).cumsum() / vol.cumsum()
