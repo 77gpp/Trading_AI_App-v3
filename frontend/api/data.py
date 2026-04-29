@@ -23,6 +23,7 @@ sys.path.insert(0, ROOT_DIR)
 from flask import Blueprint, request, jsonify
 import yfinance as yf
 import pandas as pd
+from datetime import datetime, timedelta
 from loguru import logger
 
 
@@ -151,9 +152,15 @@ def get_chart_data():
         # Yahoo Finance non supporta 4h nativo: scarichiamo 1h e poi resampliamo
         yf_interval = "1h" if interval == "4h" else interval
 
+        # yfinance usa end ESCLUSIVO: aggiungere 1 giorno rende end INCLUSIVO
+        # così il grafico mostra dati fino alla data scelta dall'utente (compresa)
+        try:
+            end_inclusive = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        except Exception:
+            end_inclusive = end
 
         # yfinance con date esplicite
-        df = yf.download(ticker, start=start, end=end, interval=yf_interval, auto_adjust=True)
+        df = yf.download(ticker, start=start, end=end_inclusive, interval=yf_interval, auto_adjust=True)
 
 
         if df.empty:

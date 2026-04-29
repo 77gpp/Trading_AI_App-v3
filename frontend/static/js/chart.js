@@ -879,8 +879,9 @@ function applyOverlay(toolId, toolName, color, data) {
     };
     return;
 
-  } else if (toolId.startsWith('pivot') || toolId.startsWith('fib') || toolId.startsWith('livelli')) {
-    // Livelli orizzontali multipli 
+  } else if (toolId.startsWith('pivot') || toolId.startsWith('fib') || toolId.startsWith('livelli') ||
+             toolId.startsWith('psych') || toolId.startsWith('dynamic') || toolId.startsWith('supply') || toolId.startsWith('demand')) {
+    // Livelli orizzontali multipli (SR, psicologici, swing, zone)
     if (Array.isArray(data) && data[0] && data[0].levels) {
       const lines = data[0].levels.map((lvl) =>
         chartState.mainSeries.createPriceLine({

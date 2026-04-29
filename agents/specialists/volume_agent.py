@@ -121,11 +121,19 @@ class VolumeAgent:
         # Sezione con i segnali effettivi degli altri specialisti da validare
         other_section = ""
         if other_analyses:
+            # Limite caratteri per specialista — configurabile in Calibrazione.py.
+            # None = nessun limite (consigliato con provider locali come Gemma4).
+            # Valore numerico = tronca a N chars per non saturare il context window
+            # (es. 8000 chars ≈ 1500-2000 token, sicuro con Groq qwen3-32b 32k window).
+            _chars_limit = Calibrazione.VOLUME_AGENT_CHARS_PER_SPECIALIST
             parts = []
             for nome, testo in other_analyses.items():
                 if testo and testo not in ("Analisi Disattivata", "N/D"):
-                    # Tronca a 1500 char per non saturare il contesto
-                    estratto = testo[:1500] + ("…" if len(testo) > 1500 else "")
+                    if _chars_limit is not None and len(testo) > _chars_limit:
+                        estratto = testo[:_chars_limit] + "…"
+                        logger.debug(f"[VOLUME AGENT] {nome}: testo troncato a {_chars_limit} chars (originale: {len(testo)})")
+                    else:
+                        estratto = testo
                     parts.append(f"=== {nome} ===\n{estratto}")
             if parts:
                 other_section = (

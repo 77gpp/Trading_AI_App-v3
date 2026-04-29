@@ -35,6 +35,9 @@
       <a href="/backtesting" class="nav-link active" id="nav-backtest">
         🧪 Backtesting
       </a>
+      <a href="/performance" class="nav-link" id="nav-performance">
+        📈 Performance
+      </a>
       <a href="#" class="nav-link" id="nav-live" style="opacity:0.5;cursor:not-allowed" title="In sviluppo">
         📡 Live Analysis
       </a>
@@ -594,6 +597,110 @@
       </div>
 
 
+      <!-- ====================================================
+         PANNELLO TRADE OUTCOME (visibile dopo analisi)
+         ==================================================== -->
+      <div id="outcomePanel" style="display:none;margin:0 0 0 0;padding:12px 20px;
+           background:rgba(255,255,255,0.025);border-top:1px solid rgba(255,255,255,0.06);">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+
+          <!-- Titolo -->
+          <div style="font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.06em;">
+            🔍 Verifica Trade Post-Analisi
+          </div>
+
+          <!-- Badge Outcome -->
+          <div id="outcomeBadgeWrap" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+            <span id="outcomeBadge" style="display:inline-flex;align-items:center;gap:5px;
+              padding:4px 12px;border-radius:6px;font-size:12px;font-weight:700;
+              background:rgba(100,116,139,0.15);color:#94a3b8;">
+              ⏳ Verifica in corso...
+            </span>
+          </div>
+
+          <!-- KPI compatti -->
+          <div id="outcomeKpis" style="display:flex;gap:16px;flex-wrap:wrap;"></div>
+
+          <!-- Link a Performance -->
+          <a href="/performance" style="font-size:11px;color:#3fbef5;text-decoration:none;
+             display:flex;align-items:center;gap:4px;white-space:nowrap;">
+            📈 Tutte le analisi →
+          </a>
+
+        </div>
+        <!-- Dettaglio entry/sl/tp hit (espandibile) -->
+        <div id="outcomeDetail" style="display:none;margin-top:10px;padding-top:10px;
+             border-top:1px solid rgba(255,255,255,0.04);
+             font-size:11px;color:#94a3b8;display:flex;gap:20px;flex-wrap:wrap;"></div>
+      </div>
+
+
+      <!-- ====================================================
+         STORICO ANALISI
+         ==================================================== -->
+      <div id="historyPanel" style="margin:0;border-top:1px solid rgba(255,255,255,0.06);
+           background:rgba(255,255,255,0.015);">
+
+        <!-- Header collassabile -->
+        <div id="historyHeader" onclick="AnalysisHistory.toggle()"
+             style="display:flex;align-items:center;justify-content:space-between;
+                    padding:10px 20px;cursor:pointer;user-select:none;
+                    transition:background 0.2s;"
+             onmouseenter="this.style.background='rgba(255,255,255,0.03)'"
+             onmouseleave="this.style.background='transparent'">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span style="font-size:11px;font-weight:700;color:#64748b;
+                         text-transform:uppercase;letter-spacing:0.06em;">
+              📋 Storico Analisi
+            </span>
+            <span id="historyCount"
+                  style="background:rgba(187,134,252,0.15);color:#BB86FC;
+                         border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600;">
+              0
+            </span>
+          </div>
+          <div style="display:flex;align-items:center;gap:12px;">
+            <a href="/performance" onclick="event.stopPropagation()"
+               style="font-size:11px;color:#3fbef5;text-decoration:none;">
+              📈 Tutte le statistiche →
+            </a>
+            <span id="historyToggleIcon" style="color:#475569;font-size:12px;">▼</span>
+          </div>
+        </div>
+
+        <!-- Corpo collassabile -->
+        <div id="historyBody" style="display:none;padding:0 20px 16px;">
+          <div style="overflow-x:auto;">
+            <table id="historyTable"
+                   style="width:100%;border-collapse:collapse;font-size:12px;">
+              <thead>
+                <tr style="color:#475569;text-transform:uppercase;letter-spacing:0.05em;
+                           font-size:10px;border-bottom:1px solid rgba(255,255,255,0.06);">
+                  <th style="padding:6px 8px;text-align:left;font-weight:600;">Data</th>
+                  <th style="padding:6px 8px;text-align:left;font-weight:600;">Ora</th>
+                  <th style="padding:6px 8px;text-align:left;font-weight:600;">Simbolo</th>
+                  <th style="padding:6px 8px;text-align:left;font-weight:600;">Periodo</th>
+                  <th style="padding:6px 8px;text-align:center;font-weight:600;">Dir.</th>
+                  <th style="padding:6px 8px;text-align:right;font-weight:600;">Entry</th>
+                  <th style="padding:6px 8px;text-align:center;font-weight:600;">Esito</th>
+                  <th style="padding:6px 8px;text-align:right;font-weight:600;">P&amp;L</th>
+                  <th style="padding:6px 8px;text-align:center;font-weight:600;">Provider</th>
+                  <th style="padding:6px 8px;text-align:center;font-weight:600;"></th>
+                </tr>
+              </thead>
+              <tbody id="historyTableBody">
+                <tr>
+                  <td colspan="9"
+                      style="text-align:center;padding:20px;color:#475569;font-size:12px;">
+                    Nessuna analisi salvata. Avvia un backtesting per popolare lo storico.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
     </main>
   </div>
 
@@ -607,7 +714,7 @@
      ============================================================ -->
   <script src="/static/js/chart.js?v=3.2"></script>
   <script src="/static/js/report.js?v=3.2"></script>
-  <script src="/static/js/backtesting.js?v=3.6"></script>
+  <script src="/static/js/backtesting.js?v=3.8"></script>
 
 
 </body>

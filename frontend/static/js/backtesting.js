@@ -1183,16 +1183,16 @@ async function loadProjection(symbol, endDate, days) {
 // -------------------------------------------------------
 async function loadRealAfterData(symbol, endDate) {
   try {
-    // Scarichiamo i 60 giorni successivi alla data di fine per confronto
-    const endDateObj = new Date(endDate);
-    const realStart = new Date(endDate);
-    realStart.setDate(realStart.getDate() + 1);
-    let realEnd = new Date(endDateObj);
+    // Partiamo da endDate stesso (NON +1 giorno) perché:
+    //   1. yfinance in data.py aggiunge già +1 internamente (end esclusivo → inclusivo)
+    //   2. Se endDate cade in un giorno festivo, yfinance restituirà il primo
+    //      giorno di borsa utile successivo, senza creare un buco artificiale
+    const realStart = new Date(endDate + 'T00:00:00');
+    let realEnd = new Date(endDate + 'T00:00:00');
     realEnd.setDate(realEnd.getDate() + 90);
 
-    if (realEnd > new Date()) {
-      realEnd = new Date(); // clampa all'oggi completo (giorno + mese + anno)
-    }
+    const today = new Date();
+    if (realEnd > today) realEnd = today;
 
     if (realStart >= realEnd) return; // Non ci sono dati futuri disponibili
 
@@ -1202,10 +1202,10 @@ async function loadRealAfterData(symbol, endDate) {
     const data = await res.json();
 
     if (data.candles && data.candles.length > 0) {
-      // Candela ponte: aggancia la linea blu all'ultima candela dell'analisi storica
-      const lastCandle = App.currentData[App.currentData.length - 1];
-      const bridgeCandle = { time: lastCandle.time, close: lastCandle.close };
-      TradingChart.drawRealAfterProjection([bridgeCandle, ...data.candles]);
+      // Nessuna bridge candle artificiale: la linea parte dal primo dato reale disponibile.
+      // Questo evita la sezione piatta durante i giorni festivi/weekend tra fine analisi e
+      // primo giorno di borsa successivo (es. Pasqua, Capodanno, ecc.).
+      TradingChart.drawRealAfterProjection(data.candles);
     }
   } catch (e) {
     console.warn('[APP] Dati reali post-backtest non disponibili:', e);
@@ -1251,6 +1251,9 @@ async function runBacktest() {
   }
 
   TradingReport.placeholder('⏳ Analisi AI in corso... potrebbe richiedere 3-5 minuti.');
+
+  // Nasconde il pannello outcome del trade precedente
+  TradeOutcome.hide();
 
   try {
     const res = await fetch('/api/backtest/run', {
@@ -1347,6 +1350,9 @@ function startPolling(jobId, config) {
         // Salviamo il report
         App.lastReport = data.report;
 
+        // Salviamo il job_id per il polling outcome
+        App.lastJobId  = jobId;
+
         // Rendiamo il report
         TradingReport.render(data.report, data.trade_setup, config);
 
@@ -1368,6 +1374,14 @@ function startPolling(jobId, config) {
         resetRunButtons();
         showToast('✅ Analisi completata! Report generato.', 'success', 5000);
         updateLegend();
+
+        // Aggiorna lo storico con la nuova analisi appena salvata
+        AnalysisHistory.refresh();
+
+        // ── Pannello Trade Outcome ─────────────────────────────────────
+        // Mostra il pannello e popola subito se il verifier è già terminato,
+        // altrimenti avvia un polling leggero per aspettare l'esito.
+        TradeOutcome.show(jobId, data.outcome_result);
 
       } else if (data.status === 'cancelled') {
         clearInterval(App.pollingInterval);
@@ -1466,3 +1480,335 @@ function showToast(message, type = 'info', duration = 4000) {
     setTimeout(() => toast.remove(), 300);
   }, duration);
 }
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// TRADE OUTCOME PANEL
+// Mostra sotto il report AI l'esito del trade verificato con dati reali.
+// Se il verifier è ancora in background, fa polling ogni 10s fino a 5min.
+// ═══════════════════════════════════════════════════════════════════════
+const TradeOutcome = (() => {
+  const OUTCOME_CFG = {
+    win_tp2:  { label: '✅ WIN — TP2 raggiunto',   bg: 'rgba(3,245,169,0.12)',  color: '#03F5A9' },
+    win_tp1:  { label: '✅ WIN — TP1 raggiunto',   bg: 'rgba(3,245,169,0.09)',  color: '#4ade80' },
+    loss_sl:  { label: '❌ LOSS — Stop Loss colpito', bg: 'rgba(207,102,121,0.12)', color: '#CF6679' },
+    no_entry: { label: '⏳ NO ENTRY — livello mai toccato', bg: 'rgba(148,163,184,0.1)', color: '#94a3b8' },
+    open:     { label: '🔵 APERTO — nella finestra di analisi', bg: 'rgba(251,191,36,0.1)', color: '#fbbf24' },
+    no_trade: { label: '⚪ NO TRADE — verdetto neutrale', bg: 'rgba(100,116,139,0.1)', color: '#64748b' },
+    no_data:  { label: '🔘 NO DATA — dati reali non disponibili', bg: 'rgba(71,85,105,0.1)', color: '#475569' },
+  };
+
+  let _pollTimer   = null;
+  let _pollCount   = 0;
+  const MAX_POLLS  = 30;   // 30 × 10s = 5min max
+
+  function _fmtPct(v) {
+    if (v === null || v === undefined) return null;
+    return `${v >= 0 ? '+' : ''}${v}%`;
+  }
+
+  function _kpi(label, value, color) {
+    if (value === null || value === undefined) return '';
+    return `<div style="display:flex;flex-direction:column;gap:2px;">
+      <span style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.05em;">${label}</span>
+      <span style="font-size:14px;font-weight:700;color:${color || '#e2e8f0'};">${value}</span>
+    </div>`;
+  }
+
+  function _render(outcome) {
+    const panel = document.getElementById('outcomePanel');
+    const badge = document.getElementById('outcomeBadge');
+    const kpis  = document.getElementById('outcomeKpis');
+    const det   = document.getElementById('outcomeDetail');
+    if (!panel || !badge || !kpis) return;
+
+    panel.style.display = 'block';
+
+    if (!outcome || outcome.error) {
+      badge.textContent = '⏳ Verifica in corso...';
+      badge.style.background = 'rgba(100,116,139,0.15)';
+      badge.style.color = '#94a3b8';
+      kpis.innerHTML = '';
+      return;
+    }
+
+    const cfg = OUTCOME_CFG[outcome.outcome] || { label: outcome.outcome || '—', bg: 'rgba(100,116,139,0.1)', color: '#94a3b8' };
+    badge.textContent = cfg.label;
+    badge.style.background = cfg.bg;
+    badge.style.color = cfg.color;
+
+    // KPI compatti
+    const pnlPct = _fmtPct(outcome.pnl_percent);
+    const fcstErr = outcome.forecast_error_pct !== null ? `${outcome.forecast_error_pct}%` : null;
+    const dirOk   = outcome.direction_correct !== null ? (outcome.direction_correct ? '✅' : '❌') : null;
+
+    kpis.innerHTML = [
+      pnlPct     ? _kpi('P&L',        pnlPct, (outcome.pnl_percent||0) >= 0 ? '#03F5A9' : '#CF6679') : '',
+      outcome.days_to_entry !== null  ? _kpi('Giorni → Entry', outcome.days_to_entry + 'gg', '#BB86FC') : '',
+      outcome.days_to_exit  !== null  ? _kpi('Durata Trade', outcome.days_to_exit + 'gg', '#BB86FC') : '',
+      fcstErr    ? _kpi('Err. Forecast', fcstErr, parseFloat(outcome.forecast_error_pct) <= 5 ? '#03F5A9' : (parseFloat(outcome.forecast_error_pct) <= 15 ? '#fbbf24' : '#CF6679')) : '',
+      dirOk      ? _kpi('Dir. OK', dirOk, '#e2e8f0') : '',
+    ].join('');
+
+    // Dettaglio livelli
+    const items = [];
+    if (outcome.entry_touched)  items.push(`📍 <strong>Entry toccata</strong> il ${outcome.entry_touch_date || '?'} a ${outcome.entry_touch_price || '?'}`);
+    if (outcome.tp1_hit)        items.push(`🎯 <strong>TP1 raggiunto</strong> il ${outcome.tp1_hit_date || '?'} a ${outcome.tp1_hit_price || '?'}`);
+    if (outcome.tp2_hit)        items.push(`🎯 <strong>TP2 raggiunto</strong> il ${outcome.tp2_hit_date || '?'} a ${outcome.tp2_hit_price || '?'}`);
+    if (outcome.sl_hit)         items.push(`🛑 <strong>SL colpito</strong> il ${outcome.sl_hit_date || '?'} a ${outcome.sl_hit_price || '?'}`);
+    if (outcome.real_price_at_end !== null && outcome.real_price_at_end !== undefined)
+      items.push(`💰 Prezzo reale a fine finestra: <strong>${outcome.real_price_at_end}</strong>`);
+
+    if (items.length) {
+      det.style.display = 'flex';
+      det.innerHTML = items.map(i =>
+        `<span style="white-space:nowrap;">${i}</span>`
+      ).join('<span style="color:#334155;margin:0 4px;">|</span>');
+    } else {
+      det.style.display = 'none';
+    }
+  }
+
+  function _startPolling(jobId) {
+    _pollCount = 0;
+    clearInterval(_pollTimer);
+    _pollTimer = setInterval(async () => {
+      _pollCount++;
+      if (_pollCount > MAX_POLLS) {
+        clearInterval(_pollTimer);
+        return;
+      }
+      try {
+        const res  = await fetch(`/api/backtest/status/${jobId}`);
+        const data = await res.json();
+        if (data.outcome_result) {
+          clearInterval(_pollTimer);
+          _render(data.outcome_result);
+        }
+      } catch (e) {
+        // non critico
+      }
+    }, 10000);  // ogni 10 secondi
+  }
+
+  /**
+   * Mostra il pannello. Se outcomeResult è già disponibile lo renderizza subito,
+   * altrimenti avvia il polling.
+   */
+  function show(jobId, outcomeResult) {
+    const panel = document.getElementById('outcomePanel');
+    if (panel) panel.style.display = 'block';
+    clearInterval(_pollTimer);
+
+    if (outcomeResult) {
+      _render(outcomeResult);
+    } else {
+      // mostra "in corso" e poll
+      _render(null);
+      _startPolling(jobId);
+    }
+  }
+
+  function hide() {
+    const panel = document.getElementById('outcomePanel');
+    if (panel) panel.style.display = 'none';
+    clearInterval(_pollTimer);
+  }
+
+  return { show, hide };
+})();
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// STORICO ANALISI
+// Panel collassabile che mostra le analisi salvate nel performance DB.
+// Permette di riaprire qualsiasi analisi passata (report + grafico).
+// ═══════════════════════════════════════════════════════════════════════
+const AnalysisHistory = (() => {
+
+  let _expanded = false;
+  let _items    = [];
+
+  const DIR_BADGE = {
+    bullish: { label: '▲ Long',   color: '#03F5A9' },
+    bearish: { label: '▼ Short',  color: '#CF6679' },
+    neutral: { label: '⚪ Neutro', color: '#64748b' },
+    unknown: { label: '? N/D',    color: '#475569' },
+  };
+
+  const OUTCOME_BADGE = {
+    win_tp2:  { label: 'WIN TP2',  color: '#03F5A9' },
+    win_tp1:  { label: 'WIN TP1',  color: '#4ade80' },
+    loss_sl:  { label: 'LOSS SL',  color: '#CF6679' },
+    no_entry: { label: 'No Entry', color: '#94a3b8' },
+    open:     { label: 'Aperto',   color: '#fbbf24' },
+    no_trade: { label: 'No Trade', color: '#64748b' },
+    no_data:  { label: 'No Data',  color: '#475569' },
+  };
+
+  function _fmt(date) {
+    if (!date) return '—';
+    return date.slice(0, 10);
+  }
+
+  function _badge(cfg, value) {
+    const b = cfg[value] || { label: value || '—', color: '#475569' };
+    return `<span style="display:inline-block;padding:2px 7px;border-radius:4px;
+              font-size:10px;font-weight:700;color:${b.color};
+              background:${b.color}22;">${b.label}</span>`;
+  }
+
+  function _renderTable(items) {
+    const tbody   = document.getElementById('historyTableBody');
+    const countEl = document.getElementById('historyCount');
+    if (!tbody) return;
+
+    if (countEl) countEl.textContent = items.length;
+
+    if (!items.length) {
+      tbody.innerHTML = `<tr><td colspan="9"
+        style="text-align:center;padding:20px;color:#475569;font-size:12px;">
+        Nessuna analisi salvata. Avvia un backtesting per popolare lo storico.
+        </td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = items.map(item => {
+      const pnl = item.pnl_percent !== null && item.pnl_percent !== undefined
+        ? `<span style="color:${item.pnl_percent >= 0 ? '#03F5A9' : '#CF6679'};font-weight:700;">
+             ${item.pnl_percent >= 0 ? '+' : ''}${item.pnl_percent}%
+           </span>`
+        : '<span style="color:#475569;">—</span>';
+
+      const entryFmt = item.entry
+        ? `<span style="color:#e2e8f0;">${Number(item.entry).toLocaleString('it-IT', {maximumFractionDigits: 4})}</span>`
+        : '<span style="color:#475569;">—</span>';
+
+      const parseWarn = item.parse_error
+        ? '<span title="Parsing parziale" style="color:#fbbf24;margin-left:4px;">⚠️</span>'
+        : '';
+
+      // Formato data e ora
+      const dateTime = item.analysis_date ? item.analysis_date.slice(0, 10) : '—';
+      const timeStr = item.analysis_time ? item.analysis_time.slice(0, 5) : '—';
+
+      return `
+        <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.15s;cursor:pointer;"
+            onmouseenter="this.style.background='rgba(255,255,255,0.03)'"
+            onmouseleave="this.style.background='transparent'"
+            onclick="AnalysisHistory.load('${item.id}')">
+          <td style="padding:7px 8px;color:#94a3b8;white-space:nowrap;">${dateTime}</td>
+          <td style="padding:7px 8px;color:#94a3b8;white-space:nowrap;font-size:11px;">${timeStr}</td>
+          <td style="padding:7px 8px;font-weight:700;color:#e2e8f0;">${item.symbol || '—'}${parseWarn}</td>
+          <td style="padding:7px 8px;color:#64748b;white-space:nowrap;font-size:11px;">
+            ${_fmt(item.start_date)} → ${_fmt(item.end_date)}
+          </td>
+          <td style="padding:7px 8px;text-align:center;">${_badge(DIR_BADGE, item.direction)}</td>
+          <td style="padding:7px 8px;text-align:right;">${entryFmt}</td>
+          <td style="padding:7px 8px;text-align:center;">
+            ${item.outcome ? _badge(OUTCOME_BADGE, item.outcome) : '<span style="color:#475569;font-size:11px;">—</span>'}
+          </td>
+          <td style="padding:7px 8px;text-align:right;">${pnl}</td>
+          <td style="padding:7px 8px;text-align:center;color:#64748b;font-size:11px;">${item.llm_provider || '—'}</td>
+          <td style="padding:7px 8px;text-align:center;">
+            <button onclick="event.stopPropagation();AnalysisHistory.load('${item.id}')"
+                    style="padding:3px 10px;font-size:11px;background:rgba(187,134,252,0.15);
+                           color:#BB86FC;border:1px solid rgba(187,134,252,0.3);border-radius:4px;
+                           cursor:pointer;" title="Carica questa analisi">
+              📂 Apri
+            </button>
+          </td>
+        </tr>`;
+    }).join('');
+  }
+
+  async function refresh() {
+    try {
+      const res  = await fetch('/api/backtest/history');
+      const data = await res.json();
+      _items = data.items || [];
+      const countEl = document.getElementById('historyCount');
+      if (countEl) countEl.textContent = _items.length;
+      if (_expanded) _renderTable(_items);
+    } catch (e) {
+      console.warn('[HISTORY] Errore refresh:', e);
+    }
+  }
+
+  function toggle() {
+    _expanded = !_expanded;
+    const body = document.getElementById('historyBody');
+    const icon = document.getElementById('historyToggleIcon');
+    if (body) body.style.display = _expanded ? 'block' : 'none';
+    if (icon) icon.textContent   = _expanded ? '▲' : '▼';
+    if (_expanded) _renderTable(_items);
+  }
+
+  async function load(analysisId) {
+    showToast('⏳ Caricamento analisi storica...', 'info', 2000);
+
+    try {
+      const res  = await fetch(`/api/backtest/history/${analysisId}`);
+      const data = await res.json();
+
+      if (data.error) { showToast(`Errore: ${data.error}`, 'error'); return; }
+
+      const cfg = data.config || {};
+
+      // 1. Popola il form
+      const symInput = document.getElementById('symbolInput');
+      const startInp = document.getElementById('startDate');
+      const endInp   = document.getElementById('endDate');
+      if (symInput && cfg.symbol) {
+        symInput.value     = cfg.symbol;
+        App.currentSymbol  = cfg.symbol;
+        updateTickerBadge(cfg.symbol);
+      }
+      if (startInp && cfg.start) startInp.value = cfg.start;
+      if (endInp   && cfg.end)   endInp.value   = cfg.end;
+
+      // 2. Carica il grafico con i dati storici
+      await loadChartPreview();
+
+      // 3. Livelli di trading
+      if (data.trade_setup) TradingChart.drawTradeLevels(data.trade_setup);
+
+      // 4. Proiezione
+      if (data.projection && data.projection.candles && data.projection.candles.length) {
+        TradingChart.drawProjection(data.projection.candles);
+      }
+
+      // 5. Report
+      if (data.report) {
+        App.lastReport = data.report;
+        App.lastJobId  = analysisId;
+        TradingReport.render(data.report, data.trade_setup, cfg);
+      } else {
+        TradingReport.placeholder(
+          '⚠️ Report non disponibile per questa analisi storica.\n' +
+          'Le analisi precedenti all\'aggiornamento non conservano il testo del report.'
+        );
+      }
+
+      // 6. Pannello outcome
+      TradeOutcome.show(analysisId, data.outcome);
+
+      const label = cfg.symbol ? `${cfg.symbol} — ${cfg.end}` : analysisId.slice(0, 8);
+      showToast(`✅ Analisi storica caricata: ${label}`, 'success', 4000);
+      document.getElementById('reportArea')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    } catch (e) {
+      showToast(`Errore caricamento analisi: ${e.message}`, 'error');
+    }
+  }
+
+  function init() { refresh(); }
+
+  return { init, refresh, toggle, load };
+})();
+
+
+// ── Inizializzazione storico al caricamento pagina ────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  AnalysisHistory.init();
+});

@@ -126,11 +126,12 @@ def get_status(job_id: str):
     }
 
     if job["status"] == "done":
-        response["report"]       = job["report"]
-        response["projection"]   = job.get("projection", {})
-        response["config"]       = job["config"]
-        response["trade_setup"]  = job.get("trade_setup", {})
-        response["chosen_tools"] = job.get("chosen_tools", {})
+        response["report"]         = job["report"]
+        response["projection"]     = job.get("projection", {})
+        response["config"]         = job["config"]
+        response["trade_setup"]    = job.get("trade_setup", {})
+        response["chosen_tools"]   = job.get("chosen_tools", {})
+        response["outcome_result"] = job.get("outcome_result")  # None se verifica ancora in corso
 
     if job["status"] == "error":
         response["error"] = job["error"]
@@ -230,6 +231,135 @@ def list_jobs():
 
 
 # ------------------------------------------------------------------
+# STORICO ANALISI — Carica un'analisi dal performance DB per la UI
+# ------------------------------------------------------------------
+@backtesting_bp.route("/history", methods=["GET"])
+def list_history():
+    """Lista delle analisi storiche salvate (max 50 più recenti)."""
+    import sqlite3 as _sqlite3
+    db_path = os.path.join(ROOT_DIR, "storage", "memory", "performance.db")
+    if not os.path.exists(db_path):
+        return jsonify({"items": [], "total": 0})
+    try:
+        conn = _sqlite3.connect(db_path)
+        conn.row_factory = _sqlite3.Row
+        rows = conn.execute("""
+            SELECT a.id, a.symbol, a.market_type, a.start_date, a.end_date,
+                   a.analysis_date, a.direction, a.entry, a.stop_loss,
+                   a.take_profit_1, a.take_profit_2, a.last_price,
+                   a.parse_error, a.llm_provider,
+                   t.outcome, t.pnl_percent, t.days_to_entry, t.days_to_exit,
+                   t.forecast_error_pct, t.direction_correct
+            FROM analyses a
+            LEFT JOIN trade_outcomes t ON a.id = t.analysis_id
+            ORDER BY a.analysis_date DESC
+            LIMIT 50
+        """).fetchall()
+        total = conn.execute("SELECT COUNT(*) as n FROM analyses").fetchone()["n"]
+        conn.close()
+        return jsonify({"items": [dict(r) for r in rows], "total": total})
+    except Exception as e:
+        logger.error(f"[HISTORY] Errore lista: {e}")
+        return jsonify({"items": [], "total": 0, "error": str(e)})
+
+
+@backtesting_bp.route("/history/<analysis_id>", methods=["GET"])
+def get_historical_analysis(analysis_id: str):
+    """
+    Restituisce i dati completi di un'analisi storica per il ricaricamento nella UI.
+    Include: report_markdown, trade_setup ricostruito, proiezione ricalcolata, outcome.
+    """
+    import sqlite3 as _sqlite3
+    db_path = os.path.join(ROOT_DIR, "storage", "memory", "performance.db")
+    if not os.path.exists(db_path):
+        return jsonify({"error": "Nessun dato storico disponibile"}), 404
+
+    try:
+        conn = _sqlite3.connect(db_path)
+        conn.row_factory = _sqlite3.Row
+        row     = conn.execute("SELECT * FROM analyses WHERE id=?", (analysis_id,)).fetchone()
+        outcome = conn.execute("SELECT * FROM trade_outcomes WHERE analysis_id=?", (analysis_id,)).fetchone()
+        conn.close()
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+    if not row:
+        return jsonify({"error": "Analisi non trovata"}), 404
+
+    row = dict(row)
+
+    trade_setup = {
+        "direction":         row.get("direction"),
+        "entry":             row.get("entry"),
+        "stop_loss":         row.get("stop_loss"),
+        "take_profit_1":     row.get("take_profit_1"),
+        "take_profit_2":     row.get("take_profit_2"),
+        "last_price":        row.get("last_price"),
+        "ai_forecast_price": row.get("ai_forecast_price"),
+        "ai_forecast_upper": row.get("ai_forecast_upper"),
+        "ai_forecast_lower": row.get("ai_forecast_lower"),
+        "ai_forecast_bias":  row.get("ai_forecast_bias"),
+        "ai_forecast_entry": row.get("ai_forecast_entry"),
+        "ai_forecast_sl":    row.get("ai_forecast_sl"),
+        "ai_forecast_tp":    row.get("ai_forecast_tp"),
+        "parse_error":       bool(row.get("parse_error", 0)),
+    }
+
+    proj_days = 30
+    if row.get("projection_end_date") and row.get("end_date"):
+        try:
+            proj_days = (
+                datetime.strptime(row["projection_end_date"], "%Y-%m-%d") -
+                datetime.strptime(row["end_date"], "%Y-%m-%d")
+            ).days
+        except Exception:
+            proj_days = 30
+
+    projection = {}
+    try:
+        import yfinance as yf
+        import pandas as pd
+        symbol = row["symbol"]
+        df_1d = yf.download(
+            symbol,
+            start=row["start_date"],
+            end=row["end_date"],
+            interval="1d",
+            auto_adjust=True,
+            progress=False,
+        )
+        if isinstance(df_1d.columns, pd.MultiIndex):
+            df_1d.columns = df_1d.columns.get_level_values(0)
+        if not df_1d.empty:
+            ai_price = trade_setup.get("ai_forecast_price") or trade_setup.get("ai_forecast_tp")
+            projection = _compute_projection(
+                df_1d, proj_days,
+                ai_price=ai_price,
+                ai_upper=trade_setup.get("ai_forecast_upper"),
+                ai_lower=trade_setup.get("ai_forecast_lower"),
+            )
+    except Exception as e:
+        logger.warning(f"[HISTORY] Proiezione non disponibile per {analysis_id}: {e}")
+
+    return jsonify({
+        "analysis_id": analysis_id,
+        "report":      row.get("report_markdown"),
+        "trade_setup": trade_setup,
+        "projection":  projection,
+        "outcome":     dict(outcome) if outcome else None,
+        "config": {
+            "symbol":          row["symbol"],
+            "start":           row.get("start_date", ""),
+            "end":             row.get("end_date", ""),
+            "projection_days": proj_days,
+            "market_type":     row.get("market_type", ""),
+            "llm_provider":    row.get("llm_provider", ""),
+            "analysis_date":   row.get("analysis_date", ""),
+        }
+    })
+
+
+# ------------------------------------------------------------------
 # FUNZIONE INTERNA: Thread di Analisi
 # ------------------------------------------------------------------
 def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
@@ -241,6 +371,8 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
     3. SupervisorAgent → report_markdown + chosen_tools
     4. _extract_trade_setup (con last_price per validazione interna)
     5. _compute_projection  (ancorata all'AI se il prezzo è plausibile)
+    6. save_analysis        (persistenza su performance.db)
+    7. verify_trade_outcome (in background: verifica Entry/SL/TP con dati reali)
     """
     try:
         import Calibrazione
@@ -320,6 +452,9 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
                 "mantengo proiezione statistica."
             )
 
+        # ── Aggiunge last_price nel trade_setup per il frontend ──────────────
+        trade_setup["last_price"] = last_price
+
         JOBS[job_id].update({
             "status":         "done",
             "report":         report_markdown,
@@ -331,9 +466,55 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
 
         logger.success(f"[BACKTEST THREAD] Job {job_id} completato!")
 
+        # ── Step 6: Salvataggio su Performance DB ─────────────────────────────
+        try:
+            from api.performance import save_analysis, verify_trade_outcome
+            saved = save_analysis(
+                job_id              = job_id,
+                symbol              = symbol,
+                start               = start,
+                end                 = end,
+                trade_setup         = trade_setup,
+                chosen_tools        = chosen_tools,
+                projection_end_date = projection_end_date,
+                report_markdown     = report_markdown,
+            )
+
+            # ── Step 7: Verifica outcome in thread separato ───────────────────
+            # La verifica scarica dati reali post end_date → non blocca il job
+            if saved:
+                verify_thread = threading.Thread(
+                    target=_verify_outcome_background,
+                    args=(job_id, symbol),
+                    daemon=True
+                )
+                verify_thread.start()
+        except Exception as e:
+            logger.warning(f"[BACKTEST THREAD] Performance save/verify non critico: {e}")
+
     except Exception as e:
         logger.error(f"[BACKTEST THREAD] Errore nel job {job_id}: {e}")
         JOBS[job_id].update({"status": "error", "error": str(e)})
+
+
+def _verify_outcome_background(job_id: str, symbol: str):
+    """
+    Esegue il Trade Outcome Verifier in background e aggiorna il job
+    con il risultato (outcome_result) quando disponibile.
+    """
+    try:
+        from api.performance import verify_trade_outcome
+        logger.info(f"[VERIFIER BG] Avvio verifica outcome per {symbol} ({job_id})")
+        result = verify_trade_outcome(job_id)
+        # Aggiorna il job in-memory con l'esito
+        if job_id in JOBS:
+            JOBS[job_id]["outcome_result"] = result
+            logger.success(
+                f"[VERIFIER BG] Outcome per {symbol}: "
+                f"{result.get('outcome','N/D')} | P&L: {result.get('pnl_percent','N/D')}%"
+            )
+    except Exception as e:
+        logger.warning(f"[VERIFIER BG] Errore non critico per {job_id}: {e}")
 
 
 _AGENT_MODEL_MAP = {
@@ -748,7 +929,13 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
         logger.info(f"[EXTRACT] ai_forecast_bias estratto: {setup['ai_forecast_bias']}")
 
     # ── Segnala i campi critici mancanti ─────────────────────────────────────
-    missing = [k for k in ("entry", "stop_loss", "take_profit_1") if setup[k] is None]
+    # Con NO TRADE (direction == "neutral") entry/SL/TP sono legittimamente assenti.
+    is_no_trade = setup["direction"] == "neutral"
+    if is_no_trade:
+        missing = []
+        logger.info("[EXTRACT] Verdetto NO TRADE — campi trade non obbligatori.")
+    else:
+        missing = [k for k in ("entry", "stop_loss", "take_profit_1") if setup[k] is None]
     if setup["direction"] == "unknown":
         missing.append("direction")
     if missing:

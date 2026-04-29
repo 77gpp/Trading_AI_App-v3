@@ -7,7 +7,7 @@ load_dotenv()
 # 'gemma4'  = Gemma 4 locale su http://localhost:8080 (default, nessuna API key richiesta)
 # 'qwen'    = Qwen 3 su Groq via API
 # 'gemini'  = Google Gemini via API
-LLM_PROVIDER = "gemma4"
+LLM_PROVIDER = "qwen"
 
 # --- CONFIGURAZIONE MODELLI ---
 # Per Gemma 4 locale (tutti gli agent usano lo stesso modello)
@@ -58,11 +58,19 @@ DEFAULT_PROJECTION_DAYS = 5  # Giorni di proiezione futura predefiniti (es. 30 g
 ALPACA_NEWS_LIMIT = 5000  # Numero massimo di notizie da scaricare da Alpaca Markets
 DUCKDUCKGO_NEWS_LIMIT = 5000  # Numero massimo di risultati di ricerca da DuckDuckGo
 
+# --- VOLUME AGENT: contesto da altri specialisti ---
+# Numero massimo di caratteri per-specialista passati al Volume Agent
+# come input da validare volumetricamente.
+# None  = nessun limite (consigliato con Gemma4 locale: nessun rate limit)
+# 8000  = ~1500-2000 token per specialista, sicuro con Groq qwen3-32b
+# 1500  = valore legacy (tronca la maggior parte degli output → non consigliato)
+VOLUME_AGENT_CHARS_PER_SPECIALIST = None  # None = nessun limite
 
-AGENT_PATTERN_ENABLED = False  # Analisi Pattern Candele (Joe Ross/Nison)
-AGENT_TREND_ENABLED = False  # Analisi Trend e Medie Mobili
-AGENT_SR_ENABLED = False  # Analisi Supporti e Resistenze
-AGENT_VOLUME_ENABLED = False  # Analisi Volumi (Wyckoff/VSA)
+
+AGENT_PATTERN_ENABLED = True  # Analisi Pattern Candele (Joe Ross/Nison)
+AGENT_TREND_ENABLED = True  # Analisi Trend e Medie Mobili
+AGENT_SR_ENABLED = True  # Analisi Supporti e Resistenze
+AGENT_VOLUME_ENABLED = True  # Analisi Volumi (Wyckoff/VSA)
 
 # --- PERCORSI LIBRERIE ---
 SKILLS_LIBRARY_DIR = "skills_library"

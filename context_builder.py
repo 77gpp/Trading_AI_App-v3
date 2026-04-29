@@ -8,19 +8,23 @@ Architettura a tre blocchi:
   Blocco 3 — Struttura Swing    : pivot algoritmici, filtrati per dominio agente
 
 Tabella di filtraggio per dominio:
-  ┌──────────────────┬─────────┬───────┬────┬────────┐
-  │ Blocco           │ Pattern │ Trend │ SR │ Volume │
-  ├──────────────────┼─────────┼───────┼────┼────────┤
-  │ OHLCV raw        │    ✅   │  ✅   │ ✅ │   ✅   │
-  │ Medie Mobili     │    ❌   │  ✅   │ ✅ │   ❌   │
-  │ Oscillatori      │    ❌   │  ✅   │ ❌ │   ✅   │
-  │ Bollinger + ATR  │    ❌   │  ✅   │ ✅ │   ✅   │
-  │ Volume Profile   │    ❌   │  ❌   │ ✅ │   ✅   │
-  │ Swing Structure  │    ✅   │  ✅   │ ✅ │   ❌   │
-  └──────────────────┴─────────┴───────┴────┴────────┘
+  ┌──────────────────────┬─────────┬───────┬────┬────────┐
+  │ Blocco               │ Pattern │ Trend │ SR │ Volume │
+  ├──────────────────────┼─────────┼───────┼────┼────────┤
+  │ OHLCV raw            │    ✅   │  ✅   │ ✅ │   ✅   │
+  │ Medie Mobili         │    ❌   │  ✅   │ ✅ │   ❌   │
+  │ Oscillatori + storia │    ❌   │  ✅   │ ❌ │   ✅   │
+  │ Bollinger + ATR      │    ❌   │  ✅   │ ✅ │   ✅   │
+  │ VWAP periodo         │    ❌   │  ❌   │ ✅ │   ✅   │
+  │ Volume Profile + OBV │    ❌   │  ❌   │ ✅ │   ✅   │
+  │ Fibonacci (1D)       │    ❌   │  ✅   │ ✅ │   ❌   │
+  │ Pivot Points         │    ❌   │  ❌   │ ✅ │   ❌   │
+  │ Swing Structure      │    ✅   │  ✅   │ ✅ │   ❌   │
+  └──────────────────────┴─────────┴───────┴────┴────────┘
 
 Il Pattern Agent non vede oscillatori — mantiene indipendenza di giudizio.
-Il Volume Agent non vede medie mobili — si concentra su VSA/Wyckoff puro.
+Il Volume Agent non vede medie mobili né Fibonacci — si concentra su VSA/Wyckoff puro.
+Il SR Agent riceve Fibonacci, Pivot Points e VWAP come dati pre-calcolati.
 """
 
 import pandas as pd
@@ -38,6 +42,9 @@ _AGENT_BLOCKS = {
         "oscillators":     False,
         "bollinger_atr":   False,
         "volume_metrics":  False,
+        "vwap":            False,
+        "fibonacci":       False,
+        "pivot_points":    False,
         "swing_structure": True,
     },
     "trend": {
@@ -45,6 +52,9 @@ _AGENT_BLOCKS = {
         "oscillators":     True,
         "bollinger_atr":   True,
         "volume_metrics":  False,
+        "vwap":            False,
+        "fibonacci":       True,
+        "pivot_points":    False,
         "swing_structure": True,
     },
     "sr": {
@@ -52,6 +62,9 @@ _AGENT_BLOCKS = {
         "oscillators":     False,
         "bollinger_atr":   True,
         "volume_metrics":  True,
+        "vwap":            True,
+        "fibonacci":       True,
+        "pivot_points":    True,
         "swing_structure": True,
     },
     "volume": {
@@ -59,6 +72,9 @@ _AGENT_BLOCKS = {
         "oscillators":     True,
         "bollinger_atr":   True,
         "volume_metrics":  True,
+        "vwap":            True,
+        "fibonacci":       False,
+        "pivot_points":    False,
         "swing_structure": False,
     },
 }
@@ -230,6 +246,12 @@ class ContextBuilder:
                 if vol_section:
                     tf_lines.append(vol_section)
 
+            # VWAP di periodo
+            if blocks.get("vwap"):
+                vwap_section = self._fmt_vwap(ind, close_last, tf_label)
+                if vwap_section:
+                    tf_lines.append(vwap_section)
+
             if tf_lines:
                 sections.append("\n".join(tf_lines))
 
@@ -238,6 +260,18 @@ class ContextBuilder:
             swing_section = self._fmt_swing_structure()
             if swing_section:
                 sections.append(swing_section)
+
+        # Fibonacci Retracement / Extension (blocco unico, usa swing 1D)
+        if blocks.get("fibonacci"):
+            fib_section = self._fmt_fibonacci()
+            if fib_section:
+                sections.append(fib_section)
+
+        # Pivot Points giornalieri e settimanali (blocco unico, usa data_dict 1D)
+        if blocks.get("pivot_points"):
+            pp_section = self._fmt_pivot_points()
+            if pp_section:
+                sections.append(pp_section)
 
         if not sections:
             return ""
@@ -287,6 +321,9 @@ class ContextBuilder:
             else:
                 zone = f"NEUTRALE ({rsi:.0f}/100)"
             lines.append(f"  RSI 14: {rsi:.1f} | Zona: {zone}")
+            rsi_hist = _fmt_history(ind.get("rsi_14"), n=5, decimals=1)
+            if rsi_hist:
+                lines.append(f"    ↳ Storia 5 barre: {rsi_hist}")
             added = True
 
         # MACD
@@ -303,6 +340,9 @@ class ContextBuilder:
                     else " | Istogramma CONTRAENTE"
                 )
             lines.append(f"  MACD: Line={ml:.4f} | Signal={ms:.4f} | {cross}{hist_dir}")
+            mh_hist = _fmt_history(ind.get("macd_hist"), n=5, decimals=4)
+            if mh_hist:
+                lines.append(f"    ↳ Hist 5 barre: {mh_hist}")
             added = True
 
         # Stochastic
@@ -373,7 +413,10 @@ class ContextBuilder:
         obv_prev = _prev(ind.get("obv"), n=4)
         if obv_last is not None and obv_prev is not None:
             obv_dir = "CRESCENTE (pressione acquisto)" if obv_last > obv_prev else "DECRESCENTE (pressione vendita)"
-            lines.append(f"  OBV: {obv_last:,.0f} | Tendenza ultime 5 barre: {obv_dir}")
+            lines.append(f"  OBV: {obv_last:,.0f} | Tendenza: {obv_dir}")
+            obv_hist = _fmt_history(ind.get("obv"), n=10, decimals=0)
+            if obv_hist:
+                lines.append(f"    ↳ Storia 10 barre: {obv_hist}")
             added = True
 
         # Volume Profile POC (solo per 1D, dal dict pre-calcolato)
@@ -413,6 +456,128 @@ class ContextBuilder:
 
         return "\n".join(lines) if added else ""
 
+    def _fmt_vwap(self, ind: dict, close_last: float, tf_label: str) -> str:
+        """VWAP di periodo con posizione relativa del prezzo."""
+        vwap_val = _last(ind.get("vwap"))
+        if vwap_val is None or vwap_val <= 0:
+            return ""
+        pos      = "SOPRA" if close_last > vwap_val else "SOTTO"
+        dist_pct = abs(close_last - vwap_val) / vwap_val * 100
+        zone     = "area premium (forza relativa)" if close_last > vwap_val else "area discount (debolezza relativa)"
+        return (
+            f"── VWAP Periodo {tf_label} ──\n"
+            f"  VWAP: {vwap_val:.2f} | Prezzo {pos} ({dist_pct:.1f}% — {zone})"
+        )
+
+    def _fmt_fibonacci(self) -> str:
+        """
+        Livelli Fibonacci calcolati dall'ultimo swing high e swing low 1D.
+        Ritracciamenti: 23.6 / 38.2 / 50.0 / 61.8 / 78.6 %
+        Estensioni:     127.2 / 161.8 %
+        """
+        sw_1d   = self._swings.get("1d", {})
+        sh_list = sw_1d.get("swing_highs", [])
+        sl_list = sw_1d.get("swing_lows",  [])
+        if not sh_list or not sl_list:
+            return ""
+
+        sh_date, sh_price = sh_list[-1]
+        sl_date, sl_price = sl_list[-1]
+
+        if sh_price <= sl_price:
+            return ""
+        range_ = sh_price - sl_price
+        if range_ < 0.01:
+            return ""
+
+        direction = "rialzista" if sh_date >= sl_date else "ribassista"
+        last_close = sw_1d.get("last_close")
+
+        ret_levels = [
+            ("23.6%", round(sh_price - 0.236 * range_, 2)),
+            ("38.2%", round(sh_price - 0.382 * range_, 2)),
+            ("50.0%", round(sh_price - 0.500 * range_, 2)),
+            ("61.8%", round(sh_price - 0.618 * range_, 2)),
+            ("78.6%", round(sh_price - 0.786 * range_, 2)),
+        ]
+        ext_levels = [
+            ("127.2%", round(sh_price + 0.272 * range_, 2)),
+            ("161.8%", round(sh_price + 0.618 * range_, 2)),
+        ]
+
+        lines = [
+            f"── Fibonacci Retracement (Swing 1D — struttura {direction}) ──",
+            f"  Swing Low: {sl_price:.2f} ({sl_date})  →  Swing High: {sh_price:.2f} ({sh_date})"
+            f"  |  Range: {range_:.2f}",
+            "  Ritracciamenti:",
+        ]
+        ret_parts = []
+        for label, level in ret_levels:
+            marker = " ◀ PREZZO" if last_close is not None and abs(last_close - level) < range_ * 0.015 else ""
+            ret_parts.append(f"{label} → {level:.2f}{marker}")
+        lines.append("    " + "  |  ".join(ret_parts))
+        lines.append("  Estensioni (oltre Swing High):")
+        lines.append("    " + "  |  ".join(f"{lbl} → {lvl:.2f}" for lbl, lvl in ext_levels))
+        return "\n".join(lines)
+
+    def _fmt_pivot_points(self) -> str:
+        """
+        Pivot Points classici (formula: P=(H+L+C)/3) calcolati da:
+        - Giornalieri: ultima candela 1D completata
+        - Settimanali:  ultima settimana 1D completata (resample W)
+        """
+        df_1d = self.data_dict.get("1d")
+        if df_1d is None or len(df_1d) < 2:
+            return ""
+
+        lines = []
+
+        # ── Daily Pivot Points ────────────────────────────────────────────────
+        try:
+            row = df_1d.iloc[-2]
+            H, L, C = float(row["High"]), float(row["Low"]), float(row["Close"])
+            P  = (H + L + C) / 3
+            R1 = 2*P - L;          R2 = P + (H - L);         R3 = H + 2*(P - L)
+            S1 = 2*P - H;          S2 = P - (H - L);         S3 = L - 2*(H - P)
+            date_str = (
+                str(df_1d.index[-2].date())
+                if hasattr(df_1d.index[-2], "date") else str(df_1d.index[-2])
+            )
+            lines.append(f"── Pivot Points Giornalieri (da {date_str}) ──")
+            lines.append(
+                f"  P: {P:.2f} | "
+                f"R1: {R1:.2f}  R2: {R2:.2f}  R3: {R3:.2f} | "
+                f"S1: {S1:.2f}  S2: {S2:.2f}  S3: {S3:.2f}"
+            )
+        except Exception as e:
+            logger.debug(f"[CTX BUILDER] Pivot Points giornalieri non disponibili: {e}")
+
+        # ── Weekly Pivot Points ───────────────────────────────────────────────
+        try:
+            df_w = df_1d.resample("W").agg(
+                {"High": "max", "Low": "min", "Close": "last"}
+            ).dropna()
+            if len(df_w) >= 2:
+                row_w = df_w.iloc[-2]
+                Hw, Lw, Cw = float(row_w["High"]), float(row_w["Low"]), float(row_w["Close"])
+                Pw  = (Hw + Lw + Cw) / 3
+                R1w = 2*Pw - Lw;   R2w = Pw + (Hw - Lw)
+                S1w = 2*Pw - Hw;   S2w = Pw - (Hw - Lw)
+                date_w = (
+                    str(df_w.index[-2].date())
+                    if hasattr(df_w.index[-2], "date") else str(df_w.index[-2])
+                )
+                lines.append(f"── Pivot Points Settimanali (settimana {date_w}) ──")
+                lines.append(
+                    f"  P: {Pw:.2f} | "
+                    f"R1: {R1w:.2f}  R2: {R2w:.2f} | "
+                    f"S1: {S1w:.2f}  S2: {S2w:.2f}"
+                )
+        except Exception as e:
+            logger.debug(f"[CTX BUILDER] Pivot Points settimanali non disponibili: {e}")
+
+        return "\n".join(lines) if lines else ""
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Utility
@@ -440,3 +605,53 @@ def _prev(series, n: int = 1) -> float | None:
         return round(float(clean.iloc[-(n + 1)]), 4)
     except (IndexError, TypeError, ValueError):
         return None
+
+
+def _fmt_history(series, n: int = 5, decimals: int = 1) -> str:
+    """
+    Restituisce stringa compatta degli ultimi N valori con etichetta di tendenza.
+
+    Esempi output:
+      "[45.2 → 51.8 → 58.3 → 64.1 → 68.3] ↑ CRESCENTE"
+      "[+0.004 → +0.012 → +0.009 → +0.006] ⚠ PICCO → calo"
+    """
+    if series is None:
+        return ""
+    try:
+        clean = series.dropna()
+        if len(clean) < 3:
+            return ""
+        vals = [float(v) for v in clean.iloc[-n:].tolist()]
+        if len(vals) < 2:
+            return ""
+
+        # Formato: signed se ci sono valori negativi
+        signed = any(v < 0 for v in vals)
+        fmt = f"{{:+.{decimals}f}}" if signed else f"{{:.{decimals}f}}"
+        arrow_str = " → ".join(fmt.format(v) for v in vals)
+
+        # Soglia per determinare tendenza: 5% del range totale
+        range_vals = max(vals) - min(vals)
+        thresh = range_vals * 0.05 if range_vals > 0 else abs(vals[0]) * 0.02 or 0.001
+        delta = vals[-1] - vals[0]
+
+        if delta > thresh:
+            label = "↑ CRESCENTE"
+        elif delta < -thresh:
+            label = "↓ DECRESCENTE"
+        else:
+            label = "→ STABILE"
+
+        # Rilevamento picco (massimo non all'ultima posizione) e valle (minimo non all'ultima)
+        if len(vals) >= 4:
+            max_i = max(range(len(vals)), key=lambda i: vals[i])
+            if 0 < max_i < len(vals) - 1 and (vals[max_i] - vals[-1]) > thresh:
+                label = "⚠ PICCO → calo"
+            else:
+                min_i = min(range(len(vals)), key=lambda i: vals[i])
+                if 0 < min_i < len(vals) - 1 and (vals[-1] - vals[min_i]) > thresh:
+                    label = "↗ VALLE → risalita"
+
+        return f"[{arrow_str}] {label}"
+    except Exception:
+        return ""

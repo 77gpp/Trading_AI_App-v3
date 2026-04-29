@@ -127,7 +127,8 @@ class AgnoMacroExpert:
                 "Bias Direzionale: [Risk-On (Bullish)|Risk-Off (Bearish)|Neutro] | "
                 "Conviction: [Alta|Media|Bassa] | "
                 "Timeframe: [Breve 1-2 settimane|Medio 1-2 mesi|Lungo trimestrale] | "
-                "Dati Real-Time (Yahoo Finance): Ultimo prezzo, Variazione %, Volumi 24h | "
+                "Dati Real-Time (Yahoo Finance — usa i valori esatti del blocco PREZZO CORRENTE VERIFICATO già fornito nella query): "
+                "Ultimo prezzo [valore numerico esatto, NON convertire], Variazione %, Volumi 24h | "
                 "Analisi Volumetrica VSA/Wyckoff: fase, conferme/divergenze, climax, No Demand/Supply | "
                 "News Web (DuckDuckGo): titolo linkato + sintesi impatto per ogni notizia | "
                 "News Ufficiali (Alpaca Markets): titolo linkato + sintesi impatto per ogni notizia | "
@@ -174,8 +175,13 @@ class AgnoMacroExpert:
                 "Se ritieni utile aggiungere contesto, effettua una seconda chiamata con il nome dell'indice di riferimento (es. 'sp500' per asset azionari).",
                 "IMPORTANTE: Per ogni chiamata ai tool di news (DuckDuckGo o Alpaca), utilizza SEMPRE le date di inizio e fine indicate nel 'PERIODO DI ANALISI' fornito.",
                 "IMPORTANTE: Per ogni notizia consultata, traduci sempre il Titolo in italiano (anche se la fonte originale è in inglese) e cita esplicitamente se la fonte è Alpaca o il Web generico.",
-                "Utilizza il tool YFinance per ottenere il prezzo attuale, i volumi e i dati storici dell'asset (es. ticker 'GC=F' per l'Oro).",
-                "IMPORTANTE: Riporta sempre i dati numerici grezzi prelevati (Ultimo prezzo, Variazione %, Volumi 24h) citando esplicitamente la fonte Yahoo Finance.",
+                "Il prezzo corrente, i volumi e i dati storici dell'asset sono già forniti nel blocco "
+                "'DATA STORICA YAHOO FINANCE' all'interno della query. Usali direttamente senza chiamare "
+                "il tool YFinance per i prezzi storici o il prezzo corrente. "
+                "Chiama YFinance SOLO se hai bisogno di dati non già presenti (es. raccomandazioni analisti).",
+                "IMPORTANTE: Riporta sempre i dati numerici esatti dal blocco 'PREZZO CORRENTE VERIFICATO' "
+                "(Ultimo prezzo, Variazione %, Volumi 24h) citando esplicitamente la fonte Yahoo Finance. "
+                "NON modificare, NON convertire e NON stimare il prezzo: usa il valore numerico esatto fornito.",
                 "IMPONI SEMPRE un'analisi volumetrica approfondita (VSA/Wyckoff) come filtro primario per il Team Tecnico.",
                 "Segui un ragionamento a 4 step: Prezzo/Volumi -> News/Dati -> Analisi Skill -> Sintesi Sentiment.",
                 "Fornisci sempre un bias chiaro: Risk-On (Bullish) o Risk-Off (Bearish).",
@@ -221,12 +227,22 @@ class AgnoMacroExpert:
                 if not hist.empty:
                     hist_str = hist[["Open", "High", "Low", "Close", "Volume"]].round(2).to_string()
                     perf = ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0] * 100)
+                    last_close = hist["Close"].iloc[-1]
+                    prev_close = hist["Close"].iloc[-2] if len(hist) > 1 else last_close
+                    last_pct   = (last_close - prev_close) / prev_close * 100
+                    last_vol   = hist["Volume"].iloc[-1]
                     yfinance_section = (
                         f"\n\n---\nDATA STORICA YAHOO FINANCE ({start_date} → {end_date or 'oggi'}) — periodo esatto:\n"
-                        f"Performance nel periodo: {perf:+.2f}%\n"
-                        f"Prezzo iniziale: {hist['Close'].iloc[0]:.2f} | Prezzo finale: {hist['Close'].iloc[-1]:.2f}\n\n"
+                        f"⚠️ PREZZO CORRENTE VERIFICATO (usa ESATTAMENTE questo valore numerico, NON convertire, NON stimare):\n"
+                        f"  Ultimo prezzo: {last_close:.2f}\n"
+                        f"  Variazione ultima seduta: {last_pct:+.2f}%\n"
+                        f"  Volume ultima seduta: {int(last_vol)}\n"
+                        f"Performance totale nel periodo: {perf:+.2f}%\n"
+                        f"Prezzo iniziale: {hist['Close'].iloc[0]:.2f} | Prezzo finale: {last_close:.2f}\n\n"
                         f"{hist_str}\n"
-                        f"[Dati storici già forniti. Usa YFinance tool solo per il prezzo corrente real-time.]\n---\n"
+                        f"[Tutti i dati di prezzo sono già forniti sopra. "
+                        f"NON chiamare YFinance per il prezzo corrente: è già incluso come 'Ultimo prezzo: {last_close:.2f}'. "
+                        f"NON applicare conversioni o aggiustamenti al prezzo.]\n---\n"
                     )
                 else:
                     yfinance_section = f"\n\n[ATTENZIONE: nessun dato storico YFinance disponibile per {symbol} nel periodo {start_date} → {end_date}]\n"

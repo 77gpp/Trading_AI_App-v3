@@ -24,6 +24,7 @@ import Calibrazione
 # Importiamo i Blueprint delle API (vedi frontend/api/)
 from api.backtesting import backtesting_bp
 from api.data import data_bp
+from api.performance import performance_bp
 
 # Creiamo l'app Flask, indicando dove trovare i template HTML e i file statici
 app = Flask(
@@ -40,6 +41,7 @@ CORS(app)
 # ------------------------------------------------------------------
 app.register_blueprint(backtesting_bp, url_prefix="/api/backtest")
 app.register_blueprint(data_bp, url_prefix="/api/data")
+app.register_blueprint(performance_bp, url_prefix="/api/performance")
 
 # ------------------------------------------------------------------
 # ROTTE PRINCIPALI (Pagine HTML)
@@ -60,6 +62,12 @@ def index():
 def backtesting():
     """Pagina principale del Backtesting"""
     return render_template("backtesting.html", config_calibrazione=Calibrazione)
+
+
+@app.route("/performance")
+def performance():
+    """Pagina dashboard performance e affidabilità predittiva"""
+    return render_template("performance.html")
 
 # ------------------------------------------------------------------
 # AVVIO SERVER
