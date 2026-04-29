@@ -463,8 +463,10 @@ const Performance = (() => {
       <td>${fcstErrHtml}</td>
       <td style="text-align:center;">${dirOkHtml}</td>
       <td style="color:#BB86FC;font-size:11px;">${item.llm_provider || '—'}</td>
-      <td>
-        ${!outcome ? `<button class="btn btn-secondary" style="font-size:10px;padding:3px 7px;" onclick="Performance.verifyNow('${item.id}')">▶ Verifica</button>` : ''}
+      <td style="white-space:nowrap;">
+        ${!outcome ? `<button class="btn btn-secondary" style="font-size:10px;padding:3px 7px;margin-right:4px;" onclick="Performance.verifyNow('${item.id}')">▶ Verifica</button>` : ''}
+        <button class="btn btn-secondary" style="font-size:10px;padding:3px 7px;background:rgba(207,102,121,0.12);color:#CF6679;border-color:rgba(207,102,121,0.3);"
+                onclick="Performance.deleteSingle('${item.id}','${(item.symbol||'').replace(/'/g,"\\'")}')">🗑️</button>
       </td>
     </tr>`;
   }
@@ -733,6 +735,29 @@ const Performance = (() => {
     _state._filterTimer = setTimeout(applyFilters, 400);
   }
 
+  async function deleteSingle(analysisId, symbol) {
+    const label = symbol ? `${symbol}` : analysisId.slice(0, 8) + '...';
+    if (!confirm(`Eliminare l'analisi di ${label}? Questa azione è irreversibile.`)) return;
+
+    try {
+      const res = await fetch(`/api/performance/${analysisId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      _showToast(`🗑️ Analisi eliminata`, 'success');
+      await goPage(_state.page);
+      // Ricarica anche le stats globali
+      const stats = await _loadStats();
+      if (stats && stats.total_analyses) {
+        document.getElementById('kpiGrid').innerHTML       = _renderKPIs(stats);
+        document.getElementById('chartsRow').innerHTML     = _renderCharts(stats);
+        document.getElementById('marketTable').innerHTML   = _renderMarketTable(stats);
+        document.getElementById('directionTable').innerHTML= _renderDirectionTable(stats);
+        document.getElementById('providerTable').innerHTML = _renderProviderTable(stats);
+      }
+    } catch (e) {
+      _showToast(`Errore eliminazione: ${e.message}`, 'error');
+    }
+  }
+
   async function verifyNow(analysisId) {
     _showToast('Avvio verifica outcome...', 'info');
     try {
@@ -794,6 +819,7 @@ const Performance = (() => {
     toggleSelectAll,
     onCheckboxChange,
     deleteSelected,
+    deleteSingle,
     clearSelection,
   };
 })();

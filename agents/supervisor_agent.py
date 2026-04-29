@@ -3,12 +3,15 @@ import re
 import sys
 import time
 import datetime
+
+# Fix path before importing Calibrazione
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from dotenv import load_dotenv
 from loguru import logger
 import Calibrazione
 
 # Import dei componenti Agno V5
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.agno_macro_expert import AgnoMacroExpert
 from agents.context_expander_agent import ContextExpanderAgent
 from agents.skill_selector import SkillSelector, TECHNIQUE_OVERLAY_MAP, AVAILABLE_TOOLS

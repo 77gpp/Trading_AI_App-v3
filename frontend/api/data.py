@@ -438,9 +438,8 @@ def get_calibrazione():
     try:
         from Calibrazione import (
             LLM_PROVIDER, GEMMA4_BASE_URL, MODEL_MACRO_EXPERT, MODEL_TECH_ORCHESTRATOR,
-            MODEL_SPECIALIST, MODEL_SKILL_SELECTOR, TEMPERATURE_JSON, TEMPERATURE_REPORT,
-            AGENT_PATTERN_ENABLED, AGENT_TREND_ENABLED, AGENT_SR_ENABLED, AGENT_VOLUME_ENABLED,
-            TECH_PATTERN_CANDLES, TECH_TREND_CANDLES, TECH_SR_CANDLES, TECH_VOLUME_CANDLES
+            MODEL_TECH_SPECIALISTS, MODEL_SKILL_SELECTOR, TEMPERATURE_MACRO_EXPERT, TEMPERATURE_SKILL_SELECTOR,
+            AGENT_PATTERN_ENABLED, AGENT_TREND_ENABLED, AGENT_SR_ENABLED, AGENT_VOLUME_ENABLED
         )
         return jsonify({
             "llm_provider": LLM_PROVIDER,
@@ -448,24 +447,18 @@ def get_calibrazione():
             "models": {
                 "macro_expert": MODEL_MACRO_EXPERT,
                 "tech_orchestrator": MODEL_TECH_ORCHESTRATOR,
-                "specialist": MODEL_SPECIALIST,
+                "specialists": MODEL_TECH_SPECIALISTS,
                 "skill_selector": MODEL_SKILL_SELECTOR
             },
             "temperatures": {
-                "json": TEMPERATURE_JSON,
-                "report": TEMPERATURE_REPORT
+                "macro": TEMPERATURE_MACRO_EXPERT,
+                "skill_selector": TEMPERATURE_SKILL_SELECTOR
             },
             "agents_enabled": {
                 "pattern": AGENT_PATTERN_ENABLED,
                 "trend": AGENT_TREND_ENABLED,
                 "sr": AGENT_SR_ENABLED,
                 "volume": AGENT_VOLUME_ENABLED
-            },
-            "tech_candles": {
-                "pattern": TECH_PATTERN_CANDLES,
-                "trend": TECH_TREND_CANDLES,
-                "sr": TECH_SR_CANDLES,
-                "volume": TECH_VOLUME_CANDLES
             }
         })
     except Exception as e:

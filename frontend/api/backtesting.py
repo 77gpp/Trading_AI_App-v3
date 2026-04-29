@@ -2,9 +2,13 @@
 api/backtesting.py — Endpoint Flask per il Backtesting AI.
 
 Questo modulo gestisce il flusso principale del backtesting:
-1. POST /api/backtest/run    → Avvia l'analisi in background (restituisce un job_id)
-2. GET  /api/backtest/status → Controlla lo stato (running/done) e recupera il report
-3. POST /api/backtest/projection → Calcola la proiezione statistica futura
+1. POST /api/backtest/run              → Avvia l'analisi in background (restituisce un job_id)
+2. GET  /api/backtest/status/<job_id>  → Controlla lo stato (running/done) e recupera il report
+3. POST /api/backtest/projection       → Calcola la proiezione statistica futura
+4. GET  /api/backtest/jobs             → Lista tutti i job in memoria (debug)
+5. GET  /api/backtest/jobs/history     → Storico job completati per la pagina Performance
+6. GET  /api/backtest/history          → Lista analisi persistite su SQLite (performance.db)
+7. GET  /api/backtest/history/<id>     → Dettaglio analisi da SQLite con proiezione ricalcolata
 
 L'analisi viene eseguita in un thread separato per non bloccare il server.
 Un dizionario in memoria (JOBS) mantiene lo stato di ogni analisi avviata.
@@ -217,7 +221,7 @@ def get_projection():
 
 
 # ------------------------------------------------------------------
-# LISTA JOB (per debug)
+# ENDPOINT 4: Lista job in memoria (debug)
 # ------------------------------------------------------------------
 @backtesting_bp.route("/jobs", methods=["GET"])
 def list_jobs():
@@ -231,11 +235,85 @@ def list_jobs():
 
 
 # ------------------------------------------------------------------
-# STORICO ANALISI — Carica un'analisi dal performance DB per la UI
+# ENDPOINT 5: Storico job completati in memoria — pagina Performance
+# ------------------------------------------------------------------
+@backtesting_bp.route("/jobs/history", methods=["GET"])
+def list_jobs_history():
+    """
+    Restituisce tutti i job con status=done presenti nel dizionario JOBS in memoria,
+    ordinati per data decrescente (più recenti prima).
+
+    Espone i campi necessari alla pagina Performance:
+      config, trade_setup (entry/sl/tp/direction/forecast), started_at.
+
+    Query param opzionali:
+      ?symbol=GC=F   → filtra per simbolo (case-insensitive)
+      ?limit=50      → limita il numero di risultati (default: tutti)
+    """
+    symbol_filter = request.args.get("symbol", "").strip().upper()
+    limit         = request.args.get("limit", type=int)
+
+    history = []
+    for jid, j in JOBS.items():
+        if j["status"] != "done":
+            continue
+
+        cfg = j.get("config", {})
+
+        # Filtro simbolo opzionale
+        if symbol_filter and cfg.get("symbol", "").upper() != symbol_filter:
+            continue
+
+        ts = j.get("trade_setup", {})
+        history.append({
+            "job_id":      jid,
+            "started_at":  j["started_at"],
+            "config": {
+                "symbol":          cfg.get("symbol", "—"),
+                "start":           cfg.get("start", ""),
+                "end":             cfg.get("end", ""),
+                "interval":        cfg.get("interval", "1d"),
+                "projection_days": cfg.get("projection_days", 0),
+            },
+            # Trade setup estratto dal VERDETTO FINALE
+            "direction":         ts.get("direction", "unknown"),
+            "entry":             ts.get("entry"),
+            "stop_loss":         ts.get("stop_loss"),
+            "take_profit_1":     ts.get("take_profit_1"),
+            "take_profit_2":     ts.get("take_profit_2"),
+            "last_price":        ts.get("last_price"),
+            # Previsione AI
+            "ai_forecast_price": ts.get("ai_forecast_price"),
+            "ai_forecast_upper": ts.get("ai_forecast_upper"),
+            "ai_forecast_lower": ts.get("ai_forecast_lower"),
+            "ai_forecast_bias":  ts.get("ai_forecast_bias"),
+            "ai_forecast_tp":    ts.get("ai_forecast_tp"),
+            # Outcome (disponibile dopo verifica background)
+            "outcome_result":    j.get("outcome_result"),
+            # Integrità parsing
+            "parse_error":       ts.get("parse_error", False),
+            "parse_error_msg":   ts.get("parse_error_msg", ""),
+        })
+
+    # Ordine: più recenti prima
+    history.sort(key=lambda x: x["started_at"], reverse=True)
+
+    # Limite opzionale
+    if limit and limit > 0:
+        history = history[:limit]
+
+    return jsonify({
+        "total": len(history),
+        "jobs":  history,
+    })
+
+
+# ------------------------------------------------------------------
+# ENDPOINT 6: Lista analisi storiche da SQLite (performance.db)
 # ------------------------------------------------------------------
 @backtesting_bp.route("/history", methods=["GET"])
 def list_history():
-    """Lista delle analisi storiche salvate (max 50 più recenti)."""
+    """Lista delle analisi storiche salvate su DB (max 50 più recenti)."""
     import sqlite3 as _sqlite3
     db_path = os.path.join(ROOT_DIR, "storage", "memory", "performance.db")
     if not os.path.exists(db_path):
@@ -245,14 +323,14 @@ def list_history():
         conn.row_factory = _sqlite3.Row
         rows = conn.execute("""
             SELECT a.id, a.symbol, a.market_type, a.start_date, a.end_date,
-                   a.analysis_date, a.direction, a.entry, a.stop_loss,
+                   a.analysis_date, a.analysis_time, a.direction, a.entry, a.stop_loss,
                    a.take_profit_1, a.take_profit_2, a.last_price,
                    a.parse_error, a.llm_provider,
                    t.outcome, t.pnl_percent, t.days_to_entry, t.days_to_exit,
                    t.forecast_error_pct, t.direction_correct
             FROM analyses a
             LEFT JOIN trade_outcomes t ON a.id = t.analysis_id
-            ORDER BY a.analysis_date DESC
+            ORDER BY a.analysis_date DESC, a.analysis_time DESC
             LIMIT 50
         """).fetchall()
         total = conn.execute("SELECT COUNT(*) as n FROM analyses").fetchone()["n"]
@@ -263,6 +341,9 @@ def list_history():
         return jsonify({"items": [], "total": 0, "error": str(e)})
 
 
+# ------------------------------------------------------------------
+# ENDPOINT 7: Dettaglio analisi storica da SQLite
+# ------------------------------------------------------------------
 @backtesting_bp.route("/history/<analysis_id>", methods=["GET"])
 def get_historical_analysis(analysis_id: str):
     """
@@ -320,7 +401,7 @@ def get_historical_analysis(analysis_id: str):
         import yfinance as yf
         import pandas as pd
         symbol = row["symbol"]
-        df_1d = yf.download(
+        df_1d  = yf.download(
             symbol,
             start=row["start_date"],
             end=row["end_date"],
@@ -331,7 +412,7 @@ def get_historical_analysis(analysis_id: str):
         if isinstance(df_1d.columns, pd.MultiIndex):
             df_1d.columns = df_1d.columns.get_level_values(0)
         if not df_1d.empty:
-            ai_price = trade_setup.get("ai_forecast_price") or trade_setup.get("ai_forecast_tp")
+            ai_price   = trade_setup.get("ai_forecast_price") or trade_setup.get("ai_forecast_tp")
             projection = _compute_projection(
                 df_1d, proj_days,
                 ai_price=ai_price,
@@ -355,7 +436,7 @@ def get_historical_analysis(analysis_id: str):
             "market_type":     row.get("market_type", ""),
             "llm_provider":    row.get("llm_provider", ""),
             "analysis_date":   row.get("analysis_date", ""),
-        }
+        },
     })
 
 
@@ -452,7 +533,7 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
                 "mantengo proiezione statistica."
             )
 
-        # ── Aggiunge last_price nel trade_setup per il frontend ──────────────
+        # Aggiunge last_price nel trade_setup per il frontend
         trade_setup["last_price"] = last_price
 
         JOBS[job_id].update({
@@ -509,10 +590,10 @@ def _verify_outcome_background(job_id: str, symbol: str):
         # Aggiorna il job in-memory con l'esito
         if job_id in JOBS:
             JOBS[job_id]["outcome_result"] = result
-            logger.success(
-                f"[VERIFIER BG] Outcome per {symbol}: "
-                f"{result.get('outcome','N/D')} | P&L: {result.get('pnl_percent','N/D')}%"
-            )
+        logger.success(
+            f"[VERIFIER BG] Outcome per {symbol}: "
+            f"{result.get('outcome', 'N/D')} | P&L: {result.get('pnl_percent', 'N/D')}%"
+        )
     except Exception as e:
         logger.warning(f"[VERIFIER BG] Errore non critico per {job_id}: {e}")
 
@@ -610,6 +691,7 @@ def _compute_projection(df_1d, days: int,
     Modalità AI-anchored (quando ai_price è fornito):
       Interpolazione lineare dal last_price al prezzo AI target.
       Le bande convergono verso ai_upper/ai_lower (o ±1.5σ come fallback).
+
     Modalità statistica (fallback, quando ai_price è None):
       Regressione lineare sugli ultimi 20 giorni + bande ±1.5σ.
     """
@@ -790,7 +872,7 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
         return None
 
     def _extract_validated_price(label_re, field_name: str,
-                                  plausible: bool = False) -> float | None:
+                                  plausible: bool = False):
         """
         Estrae un prezzo dal testo dopo `label_re` e, se `plausible=True` e
         `last_price` è disponibile, valida che il valore sia entro il 50%
@@ -936,18 +1018,18 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
         logger.info("[EXTRACT] Verdetto NO TRADE — campi trade non obbligatori.")
     else:
         missing = [k for k in ("entry", "stop_loss", "take_profit_1") if setup[k] is None]
-    if setup["direction"] == "unknown":
-        missing.append("direction")
-    if missing:
-        setup["parse_error"]     = True
-        setup["parse_error_msg"] = (
-            f"Campi non estratti dal VERDETTO FINALE: {', '.join(missing)}. "
-            "Verifica che il sintetizzatore abbia usato le etichette corrette "
-            "('Entry Suggerita', 'Stop Loss', 'Target 1', 'Bias Primario')."
-        )
-        logger.error(f"[EXTRACT] {setup['parse_error_msg']}")
-        logger.warning(
-            f"[EXTRACT] Testo VERDETTO FINALE (primi 800 char):\n{search_text[:800]}"
-        )
+        if setup["direction"] == "unknown":
+            missing.append("direction")
+        if missing:
+            setup["parse_error"]     = True
+            setup["parse_error_msg"] = (
+                f"Campi non estratti dal VERDETTO FINALE: {', '.join(missing)}. "
+                "Verifica che il sintetizzatore abbia usato le etichette corrette "
+                "('Entry Suggerita', 'Stop Loss', 'Target 1', 'Bias Primario')."
+            )
+            logger.error(f"[EXTRACT] {setup['parse_error_msg']}")
+            logger.warning(
+                f"[EXTRACT] Testo VERDETTO FINALE (primi 800 char):\n{search_text[:800]}"
+            )
 
     return setup

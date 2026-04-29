@@ -1666,7 +1666,7 @@ const AnalysisHistory = (() => {
     if (countEl) countEl.textContent = items.length;
 
     if (!items.length) {
-      tbody.innerHTML = `<tr><td colspan="9"
+      tbody.innerHTML = `<tr><td colspan="10"
         style="text-align:center;padding:20px;color:#475569;font-size:12px;">
         Nessuna analisi salvata. Avvia un backtesting per popolare lo storico.
         </td></tr>`;
@@ -1710,12 +1710,18 @@ const AnalysisHistory = (() => {
           </td>
           <td style="padding:7px 8px;text-align:right;">${pnl}</td>
           <td style="padding:7px 8px;text-align:center;color:#64748b;font-size:11px;">${item.llm_provider || '—'}</td>
-          <td style="padding:7px 8px;text-align:center;">
+          <td style="padding:7px 8px;text-align:center;white-space:nowrap;">
             <button onclick="event.stopPropagation();AnalysisHistory.load('${item.id}')"
                     style="padding:3px 10px;font-size:11px;background:rgba(187,134,252,0.15);
                            color:#BB86FC;border:1px solid rgba(187,134,252,0.3);border-radius:4px;
-                           cursor:pointer;" title="Carica questa analisi">
+                           cursor:pointer;margin-right:4px;" title="Carica questa analisi">
               📂 Apri
+            </button>
+            <button onclick="event.stopPropagation();AnalysisHistory.deleteAnalysis('${item.id}','${item.symbol || ''}')"
+                    style="padding:3px 8px;font-size:11px;background:rgba(207,102,121,0.12);
+                           color:#CF6679;border:1px solid rgba(207,102,121,0.3);border-radius:4px;
+                           cursor:pointer;" title="Elimina questa analisi">
+              🗑️
             </button>
           </td>
         </tr>`;
@@ -1802,9 +1808,23 @@ const AnalysisHistory = (() => {
     }
   }
 
+  async function deleteAnalysis(analysisId, symbol) {
+    const label = symbol ? `${symbol} (${analysisId.slice(0, 8)}...)` : analysisId.slice(0, 8) + '...';
+    if (!confirm(`Eliminare l'analisi ${label}? Questa azione è irreversibile.`)) return;
+
+    try {
+      const res = await fetch(`/api/performance/${analysisId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      showToast(`🗑️ Analisi eliminata`, 'info', 2500);
+      await refresh();
+    } catch (e) {
+      showToast(`Errore eliminazione: ${e.message}`, 'error');
+    }
+  }
+
   function init() { refresh(); }
 
-  return { init, refresh, toggle, load };
+  return { init, refresh, toggle, load, deleteAnalysis };
 })();
 
 
