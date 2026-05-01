@@ -928,6 +928,23 @@ def _compute_filtered_stats(analysis_ids: list) -> dict:
             WHERE analysis_id IN ({placeholders}) AND days_to_entry IS NOT NULL
         """, analysis_ids).fetchone()
 
+        # ── Distribuzione giorni all'entry ─────────────────────────────────────
+        entry_dist = conn.execute(f"""
+            SELECT
+                CASE
+                    WHEN days_to_entry <= 5  THEN '1-5gg'
+                    WHEN days_to_entry <= 10 THEN '6-10gg'
+                    WHEN days_to_entry <= 20 THEN '11-20gg'
+                    WHEN days_to_entry <= 30 THEN '21-30gg'
+                    ELSE '>30gg'
+                END as bucket,
+                COUNT(*) as cnt
+            FROM trade_outcomes
+            WHERE analysis_id IN ({placeholders}) AND days_to_entry IS NOT NULL
+            GROUP BY bucket
+            ORDER BY MIN(days_to_entry)
+        """, analysis_ids).fetchall()
+
         conn.close()
 
     return {
@@ -944,6 +961,7 @@ def _compute_filtered_stats(analysis_ids: list) -> dict:
         "dir_accuracy":      _round((fcst_row["dir_accuracy"] or 0) * 100 if fcst_row else None),
         "avg_days_to_entry": _round(times_row["avg_days_entry"] if times_row else None),
         "avg_days_to_exit":  _round(times_row["avg_days_exit"] if times_row else None),
+        "entry_time_dist":   [{"bucket": r["bucket"], "count": r["cnt"]} for r in entry_dist],
     }
 
 
