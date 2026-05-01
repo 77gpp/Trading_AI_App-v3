@@ -484,9 +484,24 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
 
         data_dict = {"1h": df_1h, "4h": df_4h, "1d": df_1d}
 
-        # Proiezione statistica (fallback iniziale)
+        # Proiezione statistica (fallback iniziale) — usa df_1d per l'ancoraggio sul grafico daily
         projection = _compute_projection(df_1d, projection_days)
         last_price = projection.get("last_price", 0)
+
+        # Prezzo dell'end date inclusivo: stessa logica del chart endpoint (/api/data/chart)
+        # che aggiunge +1 giorno per rendere end inclusivo. Garantisce che current_price
+        # coincida con l'ultimo close mostrato nell'intestazione del grafico.
+        _end_plus_one = (datetime.strptime(end, "%Y-%m-%d") + timedelta(days=1)).strftime("%Y-%m-%d")
+        try:
+            _df_snap = yf.download(symbol, start=end, end=_end_plus_one,
+                                   interval="1d", auto_adjust=True, progress=False)
+            if isinstance(_df_snap.columns, pd.MultiIndex):
+                _df_snap.columns = _df_snap.columns.get_level_values(0)
+            current_price = float(_df_snap["Close"].iloc[-1]) if not _df_snap.empty else last_price
+        except Exception as _e:
+            logger.warning(f"[BACKTEST THREAD] Snap price fetch fallito ({_e}), uso last_price daily")
+            current_price = last_price
+        logger.info(f"[BACKTEST THREAD] Prezzi — daily_close(excl)={last_price} | end_date_close={current_price}")
 
         projection_end_date = (
             datetime.strptime(end, "%Y-%m-%d").date() + timedelta(days=projection_days)
@@ -507,10 +522,11 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
             end_date=end,
             projection_end_date=projection_end_date,
             volume_profile=vol_profile,
+            last_price=current_price,
         )
 
-        # Estrazione setup con last_price per validazione interna dei prezzi AI
-        trade_setup = _extract_trade_setup(report_markdown, last_price=last_price)
+        # Estrazione setup con current_price per validazione interna dei prezzi AI
+        trade_setup = _extract_trade_setup(report_markdown, last_price=current_price)
 
         # Selezione prezzo AI: prima Prezzo Centrale, poi Target Proiezione come fallback.
         # Entrambi già validati internamente in _extract_trade_setup, quindi se sono presenti
@@ -533,8 +549,8 @@ def _run_analysis_thread(job_id: str, symbol: str, start: str, end: str,
                 "mantengo proiezione statistica."
             )
 
-        # Aggiunge last_price nel trade_setup per il frontend
-        trade_setup["last_price"] = last_price
+        # Aggiunge current_price nel trade_setup per il frontend (prezzo intraday 1H, più aggiornato)
+        trade_setup["last_price"] = current_price
 
         JOBS[job_id].update({
             "status":         "done",
@@ -802,6 +818,17 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
         "ai_forecast_sl":    None,
         "ai_forecast_tp":    None,
         "ai_forecast_bias":  None,
+        # Setup condizionali (solo quando direction == "neutral" / NO TRADE)
+        "conditional_bullish_trigger": None,
+        "conditional_bullish_entry":   None,
+        "conditional_bullish_sl":      None,
+        "conditional_bullish_tp1":     None,
+        "conditional_bullish_tp2":     None,
+        "conditional_bearish_trigger": None,
+        "conditional_bearish_entry":   None,
+        "conditional_bearish_sl":      None,
+        "conditional_bearish_tp1":     None,
+        "conditional_bearish_tp2":     None,
         "parse_error":       False,
         "parse_error_msg":   ""
     }
@@ -914,29 +941,7 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
 
     search_text = verdetto_match.group(0)
 
-    # ── Entry ─────────────────────────────────────────────────────────────────
-    entry_label = r'(?:[Ee]ntry\s+[Ss]uggerita|[Ee]ntry\s+[Cc]onsigliata|[Ee]ntry|[Ii]ngresso\s+[Ss]uggerit\w*)'
-    setup["entry"] = _extract_validated_price(entry_label, "Entry")
-    if setup["entry"] is None:
-        logger.warning("[EXTRACT] Campo 'Entry Suggerita' non trovato nel VERDETTO FINALE.")
-
-    # ── Stop Loss ─────────────────────────────────────────────────────────────
-    sl_label = r'(?:[Ss]top\s*[Ll]oss|[Ss]top)'
-    setup["stop_loss"] = _extract_validated_price(sl_label, "Stop Loss")
-    if setup["stop_loss"] is None:
-        logger.warning("[EXTRACT] Campo 'Stop Loss' non trovato nel VERDETTO FINALE.")
-
-    # ── Target 1 ──────────────────────────────────────────────────────────────
-    tp1_label = r'(?:[Tt]arget\s*1|[Tt]ake\s*[Pp]rofit\s*1|[Tt][Pp]1|[Oo]biettivo\s*1)'
-    setup["take_profit_1"] = _extract_validated_price(tp1_label, "Target 1")
-    if setup["take_profit_1"] is None:
-        logger.warning("[EXTRACT] Campo 'Target 1' non trovato nel VERDETTO FINALE.")
-
-    # ── Target 2 ──────────────────────────────────────────────────────────────
-    tp2_label = r'(?:[Tt]arget\s*2|[Tt]ake\s*[Pp]rofit\s*2|[Tt][Pp]2|[Oo]biettivo\s*2)'
-    setup["take_profit_2"] = _extract_validated_price(tp2_label, "Target 2")
-
-    # ── Bias Primario (direzione) ─────────────────────────────────────────────
+    # ── Bias Primario (direzione) — estratto PRIMA dei livelli di prezzo ─────
     m_bias_label = re.search(r'Bias\s+Primario', search_text, re.IGNORECASE)
     if m_bias_label:
         bias_area = search_text[m_bias_label.start(): m_bias_label.start() + 200]
@@ -963,6 +968,33 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
             )
     else:
         logger.warning("[EXTRACT] Riga 'Bias Primario' non trovata nel VERDETTO FINALE.")
+
+    is_no_trade = setup.get("direction") == "neutral"
+
+    # ── Entry ─────────────────────────────────────────────────────────────────
+    entry_label = r'(?:[Ee]ntry\s+[Ss]uggerita|[Ee]ntry\s+[Cc]onsigliata|[Ee]ntry|[Ii]ngresso\s+[Ss]uggerit\w*)'
+    setup["entry"] = _extract_validated_price(entry_label, "Entry")
+    if setup["entry"] is None:
+        log = logger.info if is_no_trade else logger.warning
+        log("[EXTRACT] Campo 'Entry Suggerita' non trovato nel VERDETTO FINALE.")
+
+    # ── Stop Loss ─────────────────────────────────────────────────────────────
+    sl_label = r'(?:[Ss]top\s*[Ll]oss|[Ss]top)'
+    setup["stop_loss"] = _extract_validated_price(sl_label, "Stop Loss")
+    if setup["stop_loss"] is None:
+        log = logger.info if is_no_trade else logger.warning
+        log("[EXTRACT] Campo 'Stop Loss' non trovato nel VERDETTO FINALE.")
+
+    # ── Target 1 ──────────────────────────────────────────────────────────────
+    tp1_label = r'(?:[Tt]arget\s*1|[Tt]ake\s*[Pp]rofit\s*1|[Tt][Pp]1|[Oo]biettivo\s*1)'
+    setup["take_profit_1"] = _extract_validated_price(tp1_label, "Target 1")
+    if setup["take_profit_1"] is None:
+        log = logger.info if is_no_trade else logger.warning
+        log("[EXTRACT] Campo 'Target 1' non trovato nel VERDETTO FINALE.")
+
+    # ── Target 2 ──────────────────────────────────────────────────────────────
+    tp2_label = r'(?:[Tt]arget\s*2|[Tt]ake\s*[Pp]rofit\s*2|[Tt][Pp]2|[Oo]biettivo\s*2)'
+    setup["take_profit_2"] = _extract_validated_price(tp2_label, "Target 2")
 
     # ── Prezzo Centrale (proiezione AI) — validazione plausibilità OBBLIGATORIA ──
     forecast_label = r'(?:[Pp]rezzo\s+[Cc]entrale|[Pp]revisione\s+[Cc]entrale|[Pp]rezzo\s+[Pp]revisto)'
@@ -1030,6 +1062,80 @@ def _extract_trade_setup(report_markdown: str, last_price: float = None) -> dict
             logger.error(f"[EXTRACT] {setup['parse_error_msg']}")
             logger.warning(
                 f"[EXTRACT] Testo VERDETTO FINALE (primi 800 char):\n{search_text[:800]}"
+            )
+
+    # ── Setup Condizionali (solo se NO TRADE) ─────────────────────────────────
+    # Estrae i due scenari condizionali (rialzista e ribassista) dal testo prodotto
+    # dall'agente nei blocchi "Setup Condizionale Rialzista / Ribassista".
+    if is_no_trade:
+        bull_sect_m = re.search(
+            r'Setup\s+Condizionale\s+Rialzista(.+?)(?=Setup\s+Condizionale\s+Ribassista|\Z)',
+            search_text, re.IGNORECASE | re.DOTALL
+        )
+        bear_sect_m = re.search(
+            r'Setup\s+Condizionale\s+Ribassista(.+?)(?=\n##\s|\Z)',
+            search_text, re.IGNORECASE | re.DOTALL
+        )
+
+        def _extract_from_sect(sect_text: str, label_re: str, field_name: str):
+            """Prima occorrenza di prezzo valido (> 10) dopo label_re nella sezione."""
+            m = re.search(label_re, sect_text, re.IGNORECASE)
+            if not m:
+                return None
+            area = sect_text[m.end(): m.end() + 300]
+            next_field = re.search(r'\n\s*(?:-\s*)?\*\*[A-Za-zÀ-ÿ]', area)
+            if next_field:
+                area = area[:next_field.start()]
+            for nm in re.finditer(num, area):
+                if nm.start() > 0 and area[nm.start() - 1] == '-':
+                    continue
+                suffix = area[nm.end(): nm.end() + 2].strip()
+                if suffix.startswith('%') or suffix.startswith(':') or suffix.startswith('-'):
+                    continue
+                val = nm.group(1)
+                try:
+                    parsed = _parse_number(val)
+                    if parsed < 10:
+                        continue
+                    logger.info(f"[EXTRACT] {field_name} = {parsed}")
+                    return round(parsed, 4)
+                except ValueError:
+                    pass
+            return None
+
+        def _extract_trigger(sect_text: str):
+            m = re.search(
+                r'Condizione\s+di\s+Trigger[^:]*:\s*(.+?)(?:\n|$)',
+                sect_text, re.IGNORECASE
+            )
+            return m.group(1).strip() if m else None
+
+        if bull_sect_m:
+            bt = bull_sect_m.group(1)
+            setup["conditional_bullish_trigger"] = _extract_trigger(bt)
+            setup["conditional_bullish_entry"]   = _extract_from_sect(bt, r'Entry', "conditional_bullish_entry")
+            setup["conditional_bullish_sl"]      = _extract_from_sect(bt, r'Stop\s*Loss', "conditional_bullish_sl")
+            setup["conditional_bullish_tp1"]     = _extract_from_sect(bt, r'Target\s*1', "conditional_bullish_tp1")
+            setup["conditional_bullish_tp2"]     = _extract_from_sect(bt, r'Target\s*2', "conditional_bullish_tp2")
+            logger.info(
+                f"[EXTRACT] Setup condizionale rialzista: "
+                f"entry={setup['conditional_bullish_entry']} "
+                f"sl={setup['conditional_bullish_sl']} "
+                f"tp1={setup['conditional_bullish_tp1']}"
+            )
+
+        if bear_sect_m:
+            bt = bear_sect_m.group(1)
+            setup["conditional_bearish_trigger"] = _extract_trigger(bt)
+            setup["conditional_bearish_entry"]   = _extract_from_sect(bt, r'Entry', "conditional_bearish_entry")
+            setup["conditional_bearish_sl"]      = _extract_from_sect(bt, r'Stop\s*Loss', "conditional_bearish_sl")
+            setup["conditional_bearish_tp1"]     = _extract_from_sect(bt, r'Target\s*1', "conditional_bearish_tp1")
+            setup["conditional_bearish_tp2"]     = _extract_from_sect(bt, r'Target\s*2', "conditional_bearish_tp2")
+            logger.info(
+                f"[EXTRACT] Setup condizionale ribassista: "
+                f"entry={setup['conditional_bearish_entry']} "
+                f"sl={setup['conditional_bearish_sl']} "
+                f"tp1={setup['conditional_bearish_tp1']}"
             )
 
     return setup

@@ -20,6 +20,7 @@ const Performance = (() => {
     filterSymbol:  '',
     totalItems:    0,
     _filterTimer:  null,
+    allItems:      [],   // cache di tutte le analisi per i breakdown espandibili
   };
 
   // ── Label / Colori ────────────────────────────────────────────────────
@@ -275,11 +276,13 @@ const Performance = (() => {
 
   // ── Tabella Mercati ───────────────────────────────────────────────────
 
-  function _renderMarketTable(stats) {
+  function _renderMarketTable(stats, allItems) {
     const rows = stats.by_market || [];
     if (!rows.length) return '<div class="empty-state"><div style="color:#475569;padding:20px;">Nessun dato disponibile</div></div>';
 
     const thead = `<thead><tr>
+      <th style="width:28px;"></th>
+      <th style="width:28px;" data-tooltip="Seleziona tutte le analisi della categoria">☐</th>
       <th>Mercato</th>
       <th data-tooltip="Analisi totali effettuate">Totale</th>
       <th data-tooltip="Analisi con esito verificato">Verificate</th>
@@ -298,8 +301,18 @@ const Performance = (() => {
     const tbody = rows.map(r => {
       const wr = r.win_rate !== null ? r.win_rate : null;
       const wrStyle = `color:${_winRateColor(wr)};font-weight:700;`;
-      return `<tr>
-        <td><strong>${r.label}</strong></td>
+      const catItems = (allItems || []).filter(i => i.market_type === r.market_type);
+      const catKey = r.market_type;
+
+      const mainRow = `<tr style="cursor:default;">
+        <td style="text-align:center;padding:6px 4px;">
+          <button data-expanded="false" onclick="Performance.toggleCategoryExpand(this,'${catKey}','market')"
+            style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#94a3b8;width:20px;height:20px;cursor:pointer;font-size:10px;padding:0;line-height:1;">▶</button>
+        </td>
+        <td style="text-align:center;padding:6px 4px;">
+          <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','market')" style="cursor:pointer;" title="Seleziona tutte le analisi di ${r.label}">
+        </td>
+        <td><strong>${r.label}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
         <td>${r.total}</td>
         <td>${r.verified}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
@@ -308,18 +321,44 @@ const Performance = (() => {
         <td style="color:#fbbf24;">${r.open_trades}</td>
         <td>
           <div class="mini-bar-wrap">
-            <div class="mini-bar">
-              <div class="mini-bar-fill" style="width:${wr || 0}%;background:${_winRateColor(wr)};"></div>
-            </div>
-            <span class="mini-bar-val" style="${wrStyle}">${wr !== null ? wr + '%' : '—'}</span>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:${wr||0}%;background:${_winRateColor(wr)};"></div></div>
+            <span class="mini-bar-val" style="${wrStyle}">${wr !== null ? wr+'%' : '—'}</span>
           </div>
         </td>
         <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl||0)>=0?'#03F5A9':'#CF6679'}">${(r.avg_pnl||0)>=0?'+':''}${r.avg_pnl}%</span>` : '—'}</td>
-        <td>${r.avg_days_entry !== null ? r.avg_days_entry + 'gg' : '—'}</td>
-        <td>${r.avg_days_exit !== null ? r.avg_days_exit + 'gg' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
-        <td>${r.dir_accuracy !== null ? r.dir_accuracy + '%' : '—'}</td>
+        <td>${r.avg_days_entry !== null ? r.avg_days_entry+'gg' : '—'}</td>
+        <td>${r.avg_days_exit !== null ? r.avg_days_exit+'gg' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
+        <td>${r.dir_accuracy !== null ? r.dir_accuracy+'%' : '—'}</td>
       </tr>`;
+
+      const subRows = catItems.map(item => {
+        const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
+        const db = _dirBadge(item.direction);
+        const pnl = item.pnl_percent !== null
+          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+        return `<tr data-sub-market="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
+          <td></td>
+          <td style="text-align:center;padding:6px 4px;">
+            <input type="checkbox" class="analysis-checkbox" data-id="${item.id}" style="cursor:pointer;" onchange="Performance.onCheckboxChange()">
+          </td>
+          <td style="padding-left:16px;">
+            <strong style="color:#3fbef5;">${item.symbol}</strong>
+            <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
+          </td>
+          <td colspan="2" style="color:#64748b;font-size:10px;">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td colspan="2">${db}</td>
+          <td colspan="2">${ob}</td>
+          <td>${pnl}</td>
+          <td>${item.days_to_entry !== null ? item.days_to_entry+'gg' : '—'}</td>
+          <td>${item.days_to_exit !== null ? item.days_to_exit+'gg' : '—'}</td>
+          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct+'%' : '—'}</td>
+          <td>${item.direction_correct !== null ? (item.direction_correct ? '✅' : '❌') : '—'}</td>
+          <td></td>
+        </tr>`;
+      }).join('');
+
+      return mainRow + subRows;
     }).join('');
 
     return `<table class="perf-table">${thead}<tbody>${tbody}</tbody></table>`;
@@ -327,11 +366,13 @@ const Performance = (() => {
 
   // ── Tabella Direzione ─────────────────────────────────────────────────
 
-  function _renderDirectionTable(stats) {
+  function _renderDirectionTable(stats, allItems) {
     const rows = stats.by_direction || [];
     if (!rows.length) return '<div style="color:#475569;padding:20px;">Nessun dato</div>';
 
     const thead = `<thead><tr>
+      <th style="width:28px;"></th>
+      <th style="width:28px;">☐</th>
       <th>Direzione</th>
       <th>Totale</th>
       <th>Win</th>
@@ -345,16 +386,49 @@ const Performance = (() => {
     const tbody = rows.map(r => {
       const cfg = DIRECTION_CONFIG[r.direction] || { label: r.direction, cls: 'badge-none' };
       const wr  = r.win_rate;
-      return `<tr>
-        <td><span class="badge ${cfg.cls}">${cfg.label}</span></td>
+      const catItems = (allItems || []).filter(i => i.direction === r.direction);
+      const catKey = r.direction;
+
+      const mainRow = `<tr>
+        <td style="text-align:center;padding:6px 4px;">
+          <button data-expanded="false" onclick="Performance.toggleCategoryExpand(this,'${catKey}','direction')"
+            style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#94a3b8;width:20px;height:20px;cursor:pointer;font-size:10px;padding:0;line-height:1;">▶</button>
+        </td>
+        <td style="text-align:center;padding:6px 4px;">
+          <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','direction')" style="cursor:pointer;" title="Seleziona tutte le analisi ${r.direction}">
+        </td>
+        <td><span class="badge ${cfg.cls}">${cfg.label}</span> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
         <td>${r.total}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
         <td style="color:#CF6679;">${r.losses}</td>
-        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr + '%' : '—'}</td>
+        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr+'%' : '—'}</td>
         <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl||0)>=0?'#03F5A9':'#CF6679'}">${(r.avg_pnl||0)>=0?'+':''}${r.avg_pnl}%</span>` : '—'}</td>
-        <td>${r.avg_days_exit !== null ? r.avg_days_exit + 'gg' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
+        <td>${r.avg_days_exit !== null ? r.avg_days_exit+'gg' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
       </tr>`;
+
+      const subRows = catItems.map(item => {
+        const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
+        const pnl = item.pnl_percent !== null
+          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+        return `<tr data-sub-direction="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
+          <td></td>
+          <td style="text-align:center;padding:6px 4px;">
+            <input type="checkbox" class="analysis-checkbox" data-id="${item.id}" style="cursor:pointer;" onchange="Performance.onCheckboxChange()">
+          </td>
+          <td style="padding-left:16px;">
+            <strong style="color:#3fbef5;">${item.symbol}</strong>
+            <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
+          </td>
+          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td colspan="2">${ob}</td>
+          <td>${pnl}</td>
+          <td>${item.days_to_exit !== null ? item.days_to_exit+'gg' : '—'}</td>
+          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct+'%' : '—'}</td>
+        </tr>`;
+      }).join('');
+
+      return mainRow + subRows;
     }).join('');
 
     return `<table class="perf-table">${thead}<tbody>${tbody}</tbody></table>`;
@@ -362,11 +436,13 @@ const Performance = (() => {
 
   // ── Tabella Provider ──────────────────────────────────────────────────
 
-  function _renderProviderTable(stats) {
+  function _renderProviderTable(stats, allItems) {
     const rows = stats.by_provider || [];
     if (!rows.length) return '<div style="color:#475569;padding:20px;">Nessun dato</div>';
 
     const thead = `<thead><tr>
+      <th style="width:28px;"></th>
+      <th style="width:28px;">☐</th>
       <th>LLM Provider</th>
       <th>Totale</th>
       <th>Win</th>
@@ -378,15 +454,48 @@ const Performance = (() => {
 
     const tbody = rows.map(r => {
       const wr = r.win_rate;
-      return `<tr>
-        <td><strong style="color:#BB86FC;">${r.provider}</strong></td>
+      const catKey = r.provider;
+      const catItems = (allItems || []).filter(i => (i.llm_provider || 'N/D') === catKey);
+
+      const mainRow = `<tr>
+        <td style="text-align:center;padding:6px 4px;">
+          <button data-expanded="false" onclick="Performance.toggleCategoryExpand(this,'${catKey}','provider')"
+            style="background:none;border:1px solid rgba(255,255,255,0.15);border-radius:4px;color:#94a3b8;width:20px;height:20px;cursor:pointer;font-size:10px;padding:0;line-height:1;">▶</button>
+        </td>
+        <td style="text-align:center;padding:6px 4px;">
+          <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','provider')" style="cursor:pointer;" title="Seleziona tutte le analisi di ${catKey}">
+        </td>
+        <td><strong style="color:#BB86FC;">${r.provider}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
         <td>${r.total}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
         <td style="color:#CF6679;">${r.losses}</td>
-        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr + '%' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
-        <td>${r.dir_accuracy !== null ? r.dir_accuracy + '%' : '—'}</td>
+        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr+'%' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
+        <td>${r.dir_accuracy !== null ? r.dir_accuracy+'%' : '—'}</td>
       </tr>`;
+
+      const subRows = catItems.map(item => {
+        const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
+        const db = _dirBadge(item.direction);
+        const pnl = item.pnl_percent !== null
+          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+        return `<tr data-sub-provider="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
+          <td></td>
+          <td style="text-align:center;padding:6px 4px;">
+            <input type="checkbox" class="analysis-checkbox" data-id="${item.id}" style="cursor:pointer;" onchange="Performance.onCheckboxChange()">
+          </td>
+          <td style="padding-left:16px;">
+            <strong style="color:#3fbef5;">${item.symbol}</strong>
+            <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
+          </td>
+          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td colspan="2">${db}</td>
+          <td>${ob}</td>
+          <td>${pnl}</td>
+        </tr>`;
+      }).join('');
+
+      return mainRow + subRows;
     }).join('');
 
     return `<table class="perf-table">${thead}<tbody>${tbody}</tbody></table>`;
@@ -523,13 +632,25 @@ const Performance = (() => {
     }
   }
 
+  async function _loadAll() {
+    try {
+      const res = await fetch('/api/performance/all');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (e) {
+      console.error('[PERF] Errore caricamento all:', e);
+      return null;
+    }
+  }
+
   // ── Render completo ───────────────────────────────────────────────────
 
   async function _renderAll() {
     document.getElementById('perfLoader').style.display = 'block';
     document.getElementById('perfContent').style.display = 'none';
 
-    const [stats, list] = await Promise.all([_loadStats(), _loadList()]);
+    const [stats, list, allData] = await Promise.all([_loadStats(), _loadList(), _loadAll()]);
+    _state.allItems = allData?.items || [];
 
     document.getElementById('perfLoader').style.display = 'none';
     document.getElementById('perfContent').style.display = 'block';
@@ -556,9 +677,9 @@ const Performance = (() => {
     } else {
       document.getElementById('kpiGrid').innerHTML       = _renderKPIs(stats);
       document.getElementById('chartsRow').innerHTML     = _renderCharts(stats);
-      document.getElementById('marketTable').innerHTML   = _renderMarketTable(stats);
-      document.getElementById('directionTable').innerHTML= _renderDirectionTable(stats);
-      document.getElementById('providerTable').innerHTML = _renderProviderTable(stats);
+      document.getElementById('marketTable').innerHTML   = _renderMarketTable(stats, _state.allItems);
+      document.getElementById('directionTable').innerHTML= _renderDirectionTable(stats, _state.allItems);
+      document.getElementById('providerTable').innerHTML = _renderProviderTable(stats, _state.allItems);
       document.getElementById('entryTimeDist').innerHTML = _renderEntryTimeDist(stats);
     }
 
@@ -593,16 +714,26 @@ const Performance = (() => {
     const selected = Array.from(document.querySelectorAll('.analysis-checkbox:checked'))
       .map(cb => cb.dataset.id);
 
+    const badge   = document.getElementById('kpiSelectionBadge');
+    const clearBtn = document.getElementById('kpiClearBtn');
+    const delBtn  = document.getElementById('kpiDeleteBtn');
+
     if (selected.length === 0) {
-      // Nascondi il panel filtrato se niente è selezionato
-      const panel = document.getElementById('filteredStatsPanel');
-      if (panel) panel.style.display = 'none';
+      if (badge)   { badge.style.display = 'none'; }
+      if (clearBtn){ clearBtn.style.display = 'none'; }
+      if (delBtn)  { delBtn.style.display = 'none'; }
       const selectAllCb = document.getElementById('selectAllCheckbox');
       if (selectAllCb) selectAllCb.checked = false;
+      // Ripristina i KPI globali
+      const stats = await _loadStats();
+      if (stats) document.getElementById('kpiGrid').innerHTML = _renderKPIs(stats);
       return;
     }
 
-    // Carica le statistiche filtrate
+    if (badge)   { badge.textContent = `${selected.length} selezionate`; badge.style.display = 'inline-flex'; }
+    if (clearBtn){ clearBtn.style.display = 'inline-block'; }
+    if (delBtn)  { delBtn.style.display = 'inline-block'; }
+
     try {
       const res = await fetch('/api/performance/stats/filtered', {
         method: 'POST',
@@ -610,62 +741,49 @@ const Performance = (() => {
         body: JSON.stringify({ analysis_ids: selected })
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const stats = await res.json();
-      _renderFilteredStats(selected, stats);
+      const filteredStats = await res.json();
+      // Aggiorna i KPI in cima in place con i dati filtrati
+      document.getElementById('kpiGrid').innerHTML = _renderKPIs(filteredStats);
     } catch (e) {
       console.error('[PERF FILTERED] Errore:', e);
     }
   }
 
-  function _renderFilteredStats(selectedIds, stats) {
-    let html = `<div style="margin-top:28px;padding:20px;background:rgba(187,134,252,0.08);border:1px solid rgba(187,134,252,0.2);border-radius:10px;">
-      <div style="font-size:13px;font-weight:700;color:#BB86FC;margin-bottom:14px;">
-        📊 Statistiche Filtrate (${selectedIds.length} analisi selezionate)
-      </div>
-      <div class="kpi-grid" style="margin-bottom:14px;">`;
+  // ── Expand/Collapse righe di categoria ───────────────────────────────
 
-    const kpis = [
-      { label: 'Totale', value: stats.total_analyses || 0 },
-      { label: 'Verificate', value: stats.total_verified || 0 },
-      { label: 'Win Rate', value: stats.win_rate !== null ? stats.win_rate + '%' : '—' },
-      { label: 'Vittorie', value: stats.wins || 0 },
-      { label: 'Sconfitte', value: stats.losses || 0 },
-      { label: 'P&L Medio', value: stats.avg_pnl !== null ? stats.avg_pnl + '%' : '—' },
-      { label: 'P&L Max', value: stats.max_pnl !== null ? stats.max_pnl + '%' : '—' },
-      { label: 'P&L Min', value: stats.min_pnl !== null ? stats.min_pnl + '%' : '—' },
-      { label: 'Err. Forecast', value: stats.avg_forecast_err !== null ? stats.avg_forecast_err + '%' : '—' },
-      { label: 'Dir. Accuracy', value: stats.dir_accuracy !== null ? stats.dir_accuracy + '%' : '—' },
-    ];
-
-    for (const kpi of kpis) {
-      html += `<div class="kpi-card" style="min-width:140px;">
-        <div class="kpi-label">${kpi.label}</div>
-        <div class="kpi-value">${kpi.value}</div>
-      </div>`;
+  function toggleCategoryExpand(btn, key, type) {
+    const expanded = btn.dataset.expanded === 'true';
+    const attr = `data-sub-${type}`;
+    const subRows = document.querySelectorAll(`[${attr}="${CSS.escape(key)}"]`);
+    if (expanded) {
+      btn.dataset.expanded = 'false';
+      btn.textContent = '▶';
+      btn.style.color = '#94a3b8';
+      subRows.forEach(r => r.style.display = 'none');
+    } else {
+      btn.dataset.expanded = 'true';
+      btn.textContent = '▼';
+      btn.style.color = '#BB86FC';
+      subRows.forEach(r => r.style.display = '');
     }
+  }
 
-    html += `</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
-        <button class="btn btn-secondary" onclick="Performance.deleteSelected()"
-                style="font-size:12px;padding:6px 14px;background:#CF6679;color:#fff;border:none;">
-          🗑️ Elimina Selezionate
-        </button>
-        <button class="btn btn-secondary" onclick="Performance.clearSelection()"
-                style="font-size:12px;padding:6px 14px;">
-          ✕ Deseleziona Tutto
-        </button>
-      </div>
-    </div>`;
-
-    let panel = document.getElementById('filteredStatsPanel');
-    if (!panel) {
-      panel = document.createElement('div');
-      panel.id = 'filteredStatsPanel';
-      const analysesList = document.getElementById('analysesList');
-      analysesList.parentElement.insertAdjacentElement('afterend', panel);
+  function toggleCategoryAll(masterCb, key, type) {
+    const attr = `data-sub-${type}`;
+    const subRows = document.querySelectorAll(`[${attr}="${CSS.escape(key)}"]`);
+    subRows.forEach(row => {
+      const cb = row.querySelector('.analysis-checkbox');
+      if (cb) cb.checked = masterCb.checked;
+    });
+    // Se si sta selezionando, espandi automaticamente le righe
+    if (masterCb.checked && subRows.length > 0 && subRows[0].style.display === 'none') {
+      // Trova il pulsante expand corrispondente e aprilo
+      const expandBtn = masterCb.closest('tr')?.querySelector('button[data-expanded]');
+      if (expandBtn && expandBtn.dataset.expanded === 'false') {
+        toggleCategoryExpand(expandBtn, key, type);
+      }
     }
-    panel.innerHTML = html;
-    panel.style.display = 'block';
+    onCheckboxChange();
   }
 
   async function deleteSelected() {
@@ -699,10 +817,11 @@ const Performance = (() => {
 
   function clearSelection() {
     document.querySelectorAll('.analysis-checkbox').forEach(cb => cb.checked = false);
+    // Deseleziona anche i checkbox di categoria
+    document.querySelectorAll('input[onchange*="toggleCategoryAll"]').forEach(cb => cb.checked = false);
     const selectAllCb = document.getElementById('selectAllCheckbox');
     if (selectAllCb) selectAllCb.checked = false;
-    const panel = document.getElementById('filteredStatsPanel');
-    if (panel) panel.style.display = 'none';
+    onCheckboxChange(); // riporta i KPI allo stato globale
   }
 
   // ── API Pubblica ──────────────────────────────────────────────────────
@@ -821,5 +940,7 @@ const Performance = (() => {
     deleteSelected,
     deleteSingle,
     clearSelection,
+    toggleCategoryExpand,
+    toggleCategoryAll,
   };
 })();

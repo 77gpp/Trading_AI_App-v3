@@ -130,16 +130,40 @@ function renderReport(reportMarkdown, tradeSetup, config) {
 // BOX TRADE SETUP (Entry, SL, TP, Direzione)
 // -------------------------------------------------------
 function buildTradeSetupBox(setup) {
-  const { entry, stop_loss, take_profit_1, take_profit_2, direction } = setup;
-  const isLong = direction === 'bullish';
+  const { entry, stop_loss, take_profit_1, take_profit_2, direction, last_price } = setup;
+  const isLong    = direction === 'bullish';
+  const isBearish = direction === 'bearish';
+  const isNeutral = !isLong && !isBearish;  // neutral / unknown
+
+  // Setup pendente = entry non ancora raggiungibile dall'attuale last_price
+  // SHORT pendente: prezzo sopra entry (deve scendere fino al trigger)
+  // LONG pendente:  prezzo sotto entry (deve salire fino al trigger)
+  const isPending = entry && last_price && (
+    (isBearish && entry < last_price) ||
+    (isLong    && entry > last_price)
+  );
+
+  // Etichetta e classe CSS per la direzione
+  let dirHTML, dirClass;
+  if (isNeutral) {
+    dirHTML  = '⏸ NO TRADE';
+    dirClass = 'neutral';
+  } else if (isPending) {
+    const arrow = isLong ? '▲ LONG' : '▼ SHORT';
+    dirHTML  = `${arrow}<span style="font-size:10px;color:#f59e0b;display:block;margin-top:3px;letter-spacing:.5px">⏳ TRIGGER PENDENTE</span>`;
+    dirClass = isLong ? 'bullish' : 'bearish';
+  } else {
+    dirHTML  = isLong ? '▲ LONG' : '▼ SHORT';
+    dirClass = isLong ? 'bullish' : 'bearish';
+  }
 
   const box = document.createElement('div');
   box.className = 'trade-setup-box';
   box.innerHTML = `
     <div class="setup-metric">
       <div class="setup-metric-label">📍 Direzione</div>
-      <div class="setup-metric-value ${isLong ? 'bullish' : 'bearish'}">
-        ${isLong ? '▲ LONG' : '▼ SHORT'}
+      <div class="setup-metric-value ${dirClass}" style="line-height:1.3">
+        ${dirHTML}
       </div>
     </div>
     <div class="setup-metric">

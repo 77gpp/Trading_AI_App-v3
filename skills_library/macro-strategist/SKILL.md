@@ -543,6 +543,203 @@ Produrre il JSON di routing per il team di agenti.
 
 ---
 
+## SKILL 11 — CONDITIONAL SETUP SYNTHESIS
+
+**Scopo:** Convertire l'analisi combinata del macro agent e dei 4 specialisti tecnici in setup condizionali operativi con trigger prezzo+volume precisi e numerici. Questo è il protocollo da seguire ogni volta che il bias primario è NO TRADE.
+
+Un setup condizionale professionale NON è un template compilato meccanicamente. È il risultato di una lettura attenta di cosa manca per validare il trade, espresso come condizione osservabile e misurabile.
+
+---
+
+### Passo 1 — Estrai i Livelli Chiave dall'SR Agent
+
+L'SR Agent ha identificato supply zone, demand zone, Fibonacci e order block. Prima di costruire qualsiasi trigger, mappa questi livelli in tre categorie:
+
+**Zona di Supporto Primaria (per setup rialzista):**
+- Demand zone con maggiore confluenza: dove si trova? Quale range di prezzo?
+- Fibonacci retracement dell'ultimo impulso ribassista: 50% e 61.8% calcolati su quale swing?
+- Order Block bullish: ultima candela ribassista prima dell'ultimo impulso rialzista
+
+**Zona di Resistenza Primaria (per setup ribassista):**
+- Supply zone con maggiore confluenza: dove si trova? Quale range di prezzo?
+- Fibonacci retracement dell'ultimo impulso rialzista: 50% e 61.8% calcolati su quale swing?
+- Order Block bearish: ultima candela rialzista prima dell'ultimo impulso ribassista
+
+**Regola:** il trigger deve essere posizionato esattamente su uno di questi livelli, non "intorno" ad essi. Se l'SR Agent non ha fornito livelli precisi, usa l'ultimo swing significativo.
+
+**Regola di Tracciabilità Obbligatoria:** ogni prezzo numerico citato nel setup condizionale deve riportare la propria fonte tra parentesi quadre, nel formato `[AgenteName — ragione]`. Esempi:
+- `3.150 [SR Agent — supply zone 4H con confluenza 4/5]`
+- `3.050 [SR Agent — demand zone + Fibonacci 61.8% dello swing 2.900→3.250]`
+- `3.280 [Pattern Agent — target Bullish Engulfing metodo Bulkowski]`
+- `[nessun agente ha fornito questo livello — non includere nel setup]`
+
+Non è ammesso citare un prezzo senza fonte. Se nessun agente ha fornito il livello specifico richiesto per costruire il setup, dichiarare la lacuna esplicitamente anziché inventare il valore.
+
+---
+
+### Passo 2 — Identifica la Fase Wyckoff dal Volume Agent
+
+Il Volume Agent ha identificato una fase Wyckoff. Usa questa mappatura per sapere QUALE conferma attendere:
+
+**Se il Volume Agent indica ACCUMULAZIONE (Wyckoff Accumulation):**
+- Il mercato ha probabilmente completato: Preliminary Support (PS) + Selling Climax (SC) + Automatic Rally (AR) + Secondary Test (ST)
+- Cosa aspettare per il trigger rialzista: il **Spring** — wick sotto il minimo del trading range su volume in calo, seguito da chiusura sopra il minimo. Oppure un **LPS** (Last Point of Support) dopo il Sign of Strength (SOS)
+- Entry: sulla barra di test del minimo (narrow spread, basso volume, chiusura vicina ai massimi) — NON al break del range
+- Condizione volume: il test deve avvenire su volume inferiore del 30-40% rispetto alla barra SC
+
+**Se il Volume Agent indica MARKUP (trend rialzista confermato):**
+- Cosa aspettare per il trigger: un **LPS** — ritracciamento verso il precedente livello di resistenza (ora supporto) su volume decrescente
+- La barra di entry ideale: una No Supply bar (narrow spread verso il basso, volume basso) seguita da una barra di up-close
+- Condizione volume: il pullback deve avere volume < 70% della media delle ultime 10 barre
+
+**Se il Volume Agent indica DISTRIBUZIONE (Wyckoff Distribution):**
+- Il mercato ha probabilmente completato: Preliminary Supply (PSY) + Buying Climax (BC) + Automatic Reaction (AR) + Secondary Test (ST)
+- Cosa aspettare per il trigger ribassista: un **Upthrust After Distribution (UTAD)** — wick sopra il massimo del range su volume in calo, seguito da chiusura sotto il massimo. Oppure un **LPSY** (Last Point of Supply)
+- Condizione volume: l'upthrust deve avvenire su volume inferiore del 30-40% rispetto alla barra BC
+
+**Se il Volume Agent indica MARKDOWN (trend ribassista confermato):**
+- Cosa aspettare per il trigger: un **LPSY** — rimbalzo verso la precedente zona di supporto (ora resistenza) su volume decrescente
+- La barra di entry ideale: una No Demand bar (narrow spread verso l'alto, volume basso) seguita da una barra di down-close
+- Condizione volume: il rimbalzo deve avere volume < 70% della media delle ultime 10 barre
+
+**Se il Volume Agent indica FASE INDETERMINATA o RANGE:**
+- Non è possibile definire un trigger ad alta probabilità fino a che una delle fasi non si risolve
+- Trigger condizionale: "chiusura 1D sopra il massimo del range con volume superiore alla media × 1.5" oppure "chiusura 1D sotto il minimo del range con volume superiore alla media × 1.5"
+
+---
+
+### Passo 3 — Estrai la Conferma dal Pattern Agent
+
+Il Pattern Agent ha identificato formazioni candlestick. Ogni pattern ha un trigger di validazione specifico:
+
+**Pattern Bullish Primari e la loro condizione di conferma:**
+
+| Pattern | Condizione di conferma | Volume richiesto |
+|---------|----------------------|-----------------|
+| Bullish Engulfing | La barra inglobante chiude sopra l'apertura della barra precedente | > 130% della media 20 periodi |
+| Morning Star | La terza barra chiude sopra il 50% della prima barra | Terza barra > seconda barra |
+| Hammer / Pin Bar | La barra successiva chiude sopra il massimo del Hammer | Qualsiasi volume crescente |
+| Bullish Harami | Rottura del massimo del pattern su chiusura successiva | Volume in aumento nella conferma |
+| Inside Bar Bullish | Chiusura sopra il massimo della mother bar | > 110% della media |
+
+**Pattern Bearish Primari e la loro condizione di conferma:**
+
+| Pattern | Condizione di conferma | Volume richiesto |
+|---------|----------------------|-----------------|
+| Bearish Engulfing | La barra inglobante chiude sotto l'apertura della barra precedente | > 130% della media 20 periodi |
+| Evening Star | La terza barra chiude sotto il 50% della prima barra | Terza barra > seconda barra |
+| Shooting Star | La barra successiva chiude sotto il minimo dello Shooting Star | Qualsiasi volume crescente |
+| Bearish Harami | Rottura del minimo del pattern su chiusura successiva | Volume in aumento nella conferma |
+
+**Regola critica:** un pattern senza conferma della barra successiva è un segnale, non un trigger. Il trigger avviene solo quando la barra di conferma chiude. Mai entrare sulla barra pattern stessa.
+
+---
+
+### Passo 4 — Estrai la Struttura dal Trend Agent
+
+Il Trend Agent ha fornito l'allineamento dei timeframe. Usa questa logica:
+
+**Per il trigger rialzista:**
+- 1D deve essere: uptrend (HH+HL) o almeno un HL recente rispettato dopo un BOS rialzista
+- 4H deve essere: pullback in corso verso zone di supporto, NON in breakdown confermato
+- 1H deve essere: il candidato per mostrare per primo il CHoCH (Change of Character) rialzista
+- Il trigger si completa quando: 1H mostra CHoCH → 4H forma HL → 1D continua la struttura HH+HL
+
+**Per il trigger ribassista:**
+- 1D deve essere: downtrend (LH+LL) o almeno un LH recente formato dopo un BOS ribassista
+- 4H deve essere: rimbalzo in corso verso zone di resistenza, NON in breakout confermato
+- 1H deve essere: il candidato per mostrare per primo il CHoCH (Change of Character) ribassista
+- Il trigger si completa quando: 1H mostra CHoCH → 4H forma LH → 1D continua la struttura LH+LL
+
+**Condizioni che invalidano il setup prima ancora di costruire il trigger:**
+- 1D in range perfettamente laterale senza struttura: nessun trigger valido possibile
+- MA200 1D fortemente contro il trade proposto (spread > 3% tra prezzo e MA200): richiedi confluenza score ≥ 7
+- MACD 1D diverge fortemente dalla direzione del trade: segnala nel trigger come condizione aggiuntiva
+
+---
+
+### Passo 5 — Costruisci il Trigger Condizionale Preciso
+
+Un trigger professionale ha QUATTRO componenti obbligatori. Tutti e quattro devono essere presenti, nessuno può essere vago:
+
+```
+TRIGGER = [TIMEFRAME] + [AZIONE DI PREZZO MISURABILE] + [LIVELLO NUMERICO] + [CONDIZIONE VOLUME]
+```
+
+**Formula del Trigger Rialzista:**
+```
+"Chiusura della candela [4H / 1D] sopra [PREZZO ESATTO da SR Agent] con volume 
+superiore alla media [N]-periodi × [moltiplicatore: 1.2 / 1.5], 
+dopo che [condizione struttura: HL confermato su 4H / Spring testato / Pattern X confermato]"
+```
+
+**Formula del Trigger Ribassista:**
+```
+"Chiusura della candela [4H / 1D] sotto [PREZZO ESATTO da SR Agent] con volume 
+superiore alla media [N]-periodi × [moltiplicatore], 
+dopo che [condizione struttura: LH confermato su 4H / UTAD testato / Pattern X confermato]"
+```
+
+**Esempi di trigger BEN FORMATI:**
+
+✅ "Chiusura 4H sopra 3.150 (resistenza strutturale SR Agent) con volume > media 20 periodi × 1.3, dopo formazione di HL sul 4H confermato da No Supply bar nella demand zone 3.080-3.100"
+
+✅ "Spring testato: wick 1D sotto 2.950 (minimo del range Wyckoff) chiuso sopra 2.950 con volume < 60% della barra SC precedente. Entry al close della barra di test."
+
+✅ "Bearish engulfing 4H confermato da chiusura sotto 3.200 (supply zone SR Agent) con volume > media 20 periodi × 1.5. SL strutturale sopra 3.250 (massimo supply zone)"
+
+**Esempi di trigger MAL FORMATI (da non usare mai):**
+
+❌ "Se il prezzo sale" — non misurabile, non temporizzato, nessun livello
+❌ "Quando il mercato mostra segnali di ripresa" — soggettivo, indefinito
+❌ "Intorno alla zona di supporto" — "intorno" non è un prezzo
+❌ "Se il volume aumenta" — aumenta rispetto a cosa? Di quanto?
+❌ "Pattern bullish confermato" — quale pattern? Su quale timeframe? Con quale barra di conferma?
+
+---
+
+### Passo 6 — Calcola Entry, SL e TP con i Livelli Reali
+
+Dopo aver definito il trigger, calcola i livelli operativi usando i dati degli agenti:
+
+**Entry (after trigger):**
+- Breakout trigger: entry a mercato al close della barra che soddisfa il trigger, oppure limit order al retest del livello rotto nelle 1-3 barre successive
+- Test/pattern trigger: entry al close della barra di conferma
+
+**Stop Loss — ordine di priorità:**
+1. Minimo del pattern (per long) o massimo del pattern (per short) se presente dal Pattern Agent
+2. Minimo/massimo dello swing strutturale più recente (dal SR Agent)
+3. Sotto/sopra la demand/supply zone (dal SR Agent)
+4. Se nessuno dei tre è applicabile: 1× ATR (dal SR Agent) sotto il punto di entry
+
+**Target 1:**
+- Prima resistenza/supporto significativo nella direzione del trade (dal SR Agent)
+- Verifica: R:R ≥ 1:2. Se < 1:2, il setup non è operativo neanche da condizionale
+
+**Target 2:**
+- Fibonacci Extension 161.8% dello swing principale (dai dati tecnici)
+- Oppure second resistance/support strutturale significativo (dal SR Agent)
+
+---
+
+### Passo 7 — Validazione Finale del Setup Condizionale
+
+Prima di dichiarare il setup condizionale, verifica:
+
+- [ ] Il trigger include: timeframe + livello numerico preciso + condizione volume specifica + evento strutturale?
+- [ ] La entry è DOPO il trigger (non sul trigger stesso, a meno che non sia un close-based trigger)?
+- [ ] Lo stop è strutturale (invalida il setup se violato)?
+- [ ] R:R ≥ 1:2 tra entry e TP1?
+- [ ] Il trigger è basato sui livelli reali forniti dall'SR Agent (non inventati)?
+- [ ] La condizione volume è basata sulla fase Wyckoff identificata dal Volume Agent?
+- [ ] Il pattern richiesto è basato sull'analisi del Pattern Agent (non inventato)?
+- [ ] Ogni prezzo nel setup ha la sua fonte tra parentesi quadre `[AgenteName — ragione]`?
+- [ ] Nessun prezzo è stato inventato? (se manca la fonte → `[nessun agente ha fornito questo livello]`)
+
+Se una risposta è NO: il setup condizionale non è operativo — dichiara "CONDIZIONI INSUFFICIENTI PER DEFINIRE UN SETUP CONDIZIONALE" e descrivi cosa manca.
+
+---
+
 ## APPENDICE — CORRELAZIONI RAPIDE DI RIFERIMENTO
 
 **Gold:**

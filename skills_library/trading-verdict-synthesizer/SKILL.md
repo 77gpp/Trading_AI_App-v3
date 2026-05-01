@@ -82,11 +82,27 @@ Produce the verdict in this exact format in Italian:
 Se le condizioni non soddisfano i criteri minimi, il verdetto è:
 
 ```
-**Bias Primario**: NO TRADE
+**Bias Primario**: NO TRADE — [filtro fallito in una frase]
 
-**Motivazione**: [ragione specifica — quale filtro ha fallito]
+**Perché NO TRADE ora**: [Descrizione precisa della situazione: divergenza macro/tecnica, regime sfavorevole, volume contrario, struttura indecisa, ecc.]
 
-**Cosa osservare**: [condizioni che renderebbero il trade valido in futuro]
+**Setup Condizionale Rialzista** *(si attiva se: [condizione macro o tecnica concreta])*:
+- **Condizione di Trigger**: [Evento preciso che valida il setup, es: "chiusura 1D sopra 3.100 con volume superiore alla media 20 periodi", "rimbalzo dalla demand zone 2.950 con pin bar bullish confermata su 4H"]
+- **Entry**: [PREZZO NUMERICO]
+- **Stop Loss**: [PREZZO NUMERICO] — [motivazione strutturale: es. sotto swing low, sotto order block]
+- **Target 1**: [PREZZO NUMERICO] — [R:R rispetto all'entry]
+- **Target 2**: [PREZZO NUMERICO] — [R:R rispetto all'entry]
+
+**Setup Condizionale Ribassista** *(si attiva se: [condizione macro o tecnica concreta])*:
+- **Condizione di Trigger**: [Evento preciso, es: "rottura e chiusura 1D sotto 2.900 con aumento volume", "pull-back su 4H verso LH con No Demand bar confermata"]
+- **Entry**: [PREZZO NUMERICO]
+- **Stop Loss**: [PREZZO NUMERICO] — [motivazione strutturale: es. sopra swing high, sopra supply zone]
+- **Target 1**: [PREZZO NUMERICO] — [R:R rispetto all'entry]
+- **Target 2**: [PREZZO NUMERICO] — [R:R rispetto all'entry]
+
+> [!NOTE]
+> I livelli sopra sono condizionali: diventano operativi SOLO al verificarsi del trigger indicato.
+> Basali su: bias macro latente, struttura S/R dagli agenti tecnici, estensioni Fibonacci dell'ultimo swing significativo.
 ```
 
 ---

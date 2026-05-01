@@ -111,7 +111,7 @@ class SupervisorAgent:
 
         logger.success("[AGNO SUPERVISOR] Sistema V5 IBRIDO pronto (Gemini + Qwen).")
 
-    def analizza_asset(self, data_dict, nome_asset, start_date=None, end_date=None, context_extra="", projection_end_date=None, volume_profile=None):
+    def analizza_asset(self, data_dict, nome_asset, start_date=None, end_date=None, context_extra="", projection_end_date=None, volume_profile=None, last_price=None):
         """
         Master Flow V5 (Modalità Sequenziale Salva-Quota).
         Restituisce una tupla (report_markdown, chosen_tools).
@@ -133,7 +133,8 @@ class SupervisorAgent:
                 query_macro,
                 start_date=start_date,
                 end_date=end_date,
-                symbol=nome_asset
+                symbol=nome_asset,
+                last_price=last_price,
             )
             logger.success("Sentiment Macro ottenuto.")
         else:

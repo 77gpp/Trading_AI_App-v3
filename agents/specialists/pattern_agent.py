@@ -58,28 +58,63 @@ class PatternAgent:
                 "con alta probabilità statistica di sviluppi specifici."
             ),
             instructions=[
-                "Inizia SEMPRE la tua risposta con la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
-                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA nel formato ESATTO: "
-                "'✅ NomeTecnica — breve nota operativa' se la tecnica è presente nei dati correnti, "
-                "'❌ NomeTecnica — non rilevato' se la tecnica non è applicabile ai dati correnti. "
-                "Elenca almeno le tecniche principali di ogni libro della FOCUS SKILLS. "
+                "Inizia SEMPRE la tua risposta con la sezione '## SINTESI OPERATIVA' (vedi campi obbligatori). "
+                "Scrivi la SINTESI OPERATIVA IMMEDIATAMENTE come prima sezione — prima di qualsiasi analisi dettagliata. "
+                "Dopo la SINTESI OPERATIVA, scrivi la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
+                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA usando ESATTAMENTE uno di questi 3 stati: "
+                "'✅ NomeTecnica — [nota operativa breve]' → tecnica rilevata e applicata ai dati correnti; "
+                "'🔍 NomeTecnica — non rilevato' → tecnica applicabile a questo asset/contesto MA assente nei dati correnti (monitorare); "
+                "'⛔ NomeTecnica — non applicabile' → tecnica non pertinente a questo asset o condizione di mercato (es. tecnica azionaria su forex, tecnica volume su asset senza volume affidabile). "
+                "La distinzione tra 🔍 e ⛔ è critica: 🔍 significa 'potrebbe apparire presto', ⛔ significa 'irrilevante per questo contesto'. "
+                "Elenca TUTTE le tecniche principali di ogni libro della FOCUS SKILLS. "
                 "Poi prosegui con l'analisi dettagliata.",
+
                 "VINCOLO FONDAMENTALE: se la sezione 'FOCUS SKILLS' è presente nel prompt, "
                 "devi analizzare TUTTE le tecniche elencate in essa (sono obbligatorie, non opzionali). "
                 "Dopo averle analizzate tutte, puoi integrare con altri pattern e tecniche "
                 "presenti nelle Skill caricate (libri di Nison, Bulkowski, Joe Ross) che ritieni utili.",
-                "Per ogni tecnica applicata consulta le tue Skill per verificare le regole di "
-                "validità esatte e calcolare il target con il metodo del libro di riferimento.",
+
+                "USO COMPLETO DELLE SKILL (5 layer): per ogni pattern identificato, applica l'intero "
+                "processo professionale della Skill — non fermarti alla sola identificazione: "
+                "(L1) spiega PERCHÉ questo pattern è psicologicamente/strutturalmente significativo "
+                "in questo specifico contesto di mercato (non in astratto); "
+                "(L2) verifica TUTTI i criteri operativi dalla Skill: proporzioni corpo/ombre, "
+                "relazione con la candela precedente, posizione nel trend — il pattern è valido? "
+                "(L3) collega il pattern con altri elementi del contesto: il pattern si forma "
+                "su un livello S/R strutturale? C'è allineamento col trend del 4H? "
+                "Ogni connessione aumenta il punteggio di affidabilità; "
+                "(L4) verifica le condizioni di INVALIDAZIONE dalla Skill: se il pattern cade "
+                "in un'anomalia (es. doji in laterale senza contesto, engulfing su volume basso), "
+                "riduci esplicitamente l'affidabilità stimata e dichiaralo; "
+                "(L5) applica il RAGIONAMENTO DELL'ANALISTA: qual è la storia che questo pattern "
+                "racconta sul comportamento dei partecipanti al mercato in questo momento?",
+
                 "Analizza i dati OHLCV su tutti i timeframe disponibili, partendo dal più lungo.",
-                "Per ogni pattern identificato documenta: nome, libro di provenienza, posizione "
-                "nel grafico, affidabilità stimata (%), e indicazione operativa (LONG/SHORT/NEUTRO).",
-                "Applica sempre il filtro volumetrico: un pattern senza conferma di volume "
-                "ha affidabilità BASSA — dichiaralo esplicitamente.",
+
+                "Per ogni pattern identificato documenta: nome, libro di provenienza, timeframe, "
+                "posizione strutturale (su S/R? fine di swing? in mezzo a range?), "
+                "affidabilità stimata (%) secondo la statistica Bulkowski quando disponibile, "
+                "indicazione operativa (LONG/SHORT/NEUTRO).",
+
+                "Applica sempre il filtro volumetrico (L4): pattern senza conferma volumetrica = "
+                "affidabilità RIDOTTA — calcola il target ma evidenzia il rischio.",
+
+                "Per il target: usa il metodo specifico del libro di riferimento "
+                "(es. Bulkowski: proietta l'altezza del pattern; Nison: stop sotto il minimo del pattern).",
+
                 "Rispetta il Sentiment Macro ricevuto: se il macro è BEARISH, dai peso "
                 "maggiore ai pattern ribassisti e tratta quelli rialzisti come potenziali "
-                "rimbalzi tecnici di breve termine.",
-                "Concludi con una sintesi operativa: segnale dominante, R/R stimato, "
-                "livelli di Stop Loss e Target calcolati secondo la metodologia del libro.",
+                "rimbalzi tecnici con affidabilità ridotta.",
+
+                "PRIMA SEZIONE OBBLIGATORIA — '## SINTESI OPERATIVA' con esattamente questi campi (scrivila PRIMA di STRUMENTI UTILIZZATI e dell'analisi dettagliata): "
+                "- **Segnale Dominante**: LONG / SHORT / NEUTRO "
+                "- **Pattern Principale**: [NomeTecnica — libro — timeframe] "
+                "- **Affidabilità**: Alta / Media / Bassa + percentuale se disponibile "
+                "- **Conferma Volume**: SÌ / NO / PARZIALE "
+                "- **Stop Loss Strutturale**: [prezzo esatto] (ragione: sotto/sopra cosa?) "
+                "- **Target Pattern**: [prezzo] — R:R stimato X:Y "
+                "- **Condizione di Invalidazione**: [condizione specifica che annulla il segnale]",
+
                 "Rispondi in italiano in modo professionale e strutturato.",
             ],
             skills=skills,
@@ -113,7 +148,12 @@ SENTIMENT MACRO DA RISPETTARE (fornito dall'agente Macro Strategist):
 {macro_sentiment}
 {focus_section}
 Esegui un'analisi completa dei pattern candlestick e delle formazioni grafiche.
-PRIMA SEZIONE OBBLIGATORIA: '## 🛠️ STRUMENTI UTILIZZATI' con ogni tecnica su riga separata nel formato: ✅ NomeTecnica — nota / ❌ NomeTecnica — non rilevato
+Per ogni pattern: applica tutti e 5 i layer della Skill (L1→L5), non solo i criteri di identificazione.
+
+STRUTTURA RISPOSTA OBBLIGATORIA (rispetta quest'ordine esatto):
+1. ## SINTESI OPERATIVA — sezione strutturata con i campi obbligatori (PRIMA di tutto)
+2. ## 🛠️ STRUMENTI UTILIZZATI — 3 stati: ✅ rilevato / 🔍 non rilevato (monitorare) / ⛔ non applicabile
+3. Analisi pattern per timeframe (con L1-L5 per ogni pattern rilevante)
 """
         try:
             response = self.agent.run(prompt)

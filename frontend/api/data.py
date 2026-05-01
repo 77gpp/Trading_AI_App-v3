@@ -436,31 +436,29 @@ def get_calibrazione():
     Usato dall'interfaccia per pre-popolare i controlli di calibrazione.
     """
     try:
-        from Calibrazione import (
-            LLM_PROVIDER, GEMMA4_BASE_URL, MODEL_MACRO_EXPERT, MODEL_TECH_ORCHESTRATOR,
-            MODEL_TECH_SPECIALISTS, MODEL_SKILL_SELECTOR, TEMPERATURE_MACRO_EXPERT, TEMPERATURE_SKILL_SELECTOR,
-            AGENT_PATTERN_ENABLED, AGENT_TREND_ENABLED, AGENT_SR_ENABLED, AGENT_VOLUME_ENABLED
-        )
+        import Calibrazione
         return jsonify({
-            "llm_provider": LLM_PROVIDER,
-            "gemma4_base_url": GEMMA4_BASE_URL,
-            "models": {
-                "macro_expert": MODEL_MACRO_EXPERT,
-                "tech_orchestrator": MODEL_TECH_ORCHESTRATOR,
-                "specialists": MODEL_TECH_SPECIALISTS,
-                "skill_selector": MODEL_SKILL_SELECTOR
-            },
-            "temperatures": {
-                "macro": TEMPERATURE_MACRO_EXPERT,
-                "skill_selector": TEMPERATURE_SKILL_SELECTOR
-            },
-            "agents_enabled": {
-                "pattern": AGENT_PATTERN_ENABLED,
-                "trend": AGENT_TREND_ENABLED,
-                "sr": AGENT_SR_ENABLED,
-                "volume": AGENT_VOLUME_ENABLED
-            }
+            "LLM_PROVIDER": Calibrazione.LLM_PROVIDER,
+            "GEMMA4_BASE_URL": Calibrazione.GEMMA4_BASE_URL,
+            "DEFAULT_PROJECTION_DAYS": Calibrazione.DEFAULT_PROJECTION_DAYS,
+            "ALPACA_NEWS_LIMIT": Calibrazione.ALPACA_NEWS_LIMIT,
+            "DUCKDUCKGO_NEWS_LIMIT": Calibrazione.DUCKDUCKGO_NEWS_LIMIT,
+            "AGENT_MACRO_ENABLED": Calibrazione.AGENT_MACRO_ENABLED,
+            "AGENT_PATTERN_ENABLED": Calibrazione.AGENT_PATTERN_ENABLED,
+            "AGENT_TREND_ENABLED": Calibrazione.AGENT_TREND_ENABLED,
+            "AGENT_SR_ENABLED": Calibrazione.AGENT_SR_ENABLED,
+            "AGENT_VOLUME_ENABLED": Calibrazione.AGENT_VOLUME_ENABLED,
+            "QWEN_THINKING_ENABLED": Calibrazione.QWEN_THINKING_ENABLED,
+            "TEMPERATURE_KNOWLEDGE_SEARCH": Calibrazione.TEMPERATURE_KNOWLEDGE_SEARCH,
+            "TEMPERATURE_MACRO_EXPERT": Calibrazione.TEMPERATURE_MACRO_EXPERT,
+            "TEMPERATURE_TECH_ORCHESTRATOR": Calibrazione.TEMPERATURE_TECH_ORCHESTRATOR,
+            "TEMPERATURE_TECH_SPECIALISTS": Calibrazione.TEMPERATURE_TECH_SPECIALISTS,
+            "TEMPERATURE_SKILL_SELECTOR": Calibrazione.TEMPERATURE_SKILL_SELECTOR,
+            "VOLUME_AGENT_CHARS_PER_SPECIALIST": Calibrazione.VOLUME_AGENT_CHARS_PER_SPECIALIST,
+            "AGENT_LLM_CONFIG": Calibrazione.AGENT_LLM_CONFIG,
+            "AVAILABLE_MODELS": Calibrazione.AVAILABLE_MODELS,
         })
     except Exception as e:
+        logger.error(f"[DATA CALIBRAZIONE] Errore: {e}")
         return jsonify({"error": str(e)}), 500
        

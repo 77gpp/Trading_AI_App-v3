@@ -785,7 +785,8 @@ function getCalibrazione() {
     'AGENT_PATTERN_ENABLED', 'AGENT_TREND_ENABLED', 'AGENT_SR_ENABLED',
     'AGENT_VOLUME_ENABLED', 'TEMPERATURE_KNOWLEDGE_SEARCH',
     'TEMPERATURE_MACRO_EXPERT', 'TEMPERATURE_TECH_ORCHESTRATOR',
-    'TEMPERATURE_TECH_SPECIALISTS', 'TEMPERATURE_SKILL_SELECTOR'
+    'TEMPERATURE_TECH_SPECIALISTS', 'TEMPERATURE_SKILL_SELECTOR',
+    'VOLUME_AGENT_CHARS_PER_SPECIALIST'
   ];
 
   keys.forEach(key => {
@@ -796,7 +797,12 @@ function getCalibrazione() {
     } else if (el.type === 'number') {
       // Usiamo parseFloat per le temperature (decimali) e parseInt per gli altri
       calib[key] = key.startsWith('TEMPERATURE') ? parseFloat(el.value) : parseInt(el.value);
-      if (isNaN(calib[key])) calib[key] = 0;
+      // Per VOLUME_AGENT_CHARS_PER_SPECIALIST: se vuoto, usiamo null; altrimenti il valore
+      if (key === 'VOLUME_AGENT_CHARS_PER_SPECIALIST') {
+        calib[key] = el.value ? parseInt(el.value) : null;
+      } else if (isNaN(calib[key])) {
+        calib[key] = 0;
+      }
     } else {
       calib[key] = el.value;
     }

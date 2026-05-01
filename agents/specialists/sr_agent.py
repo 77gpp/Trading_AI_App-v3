@@ -62,31 +62,70 @@ class SRAgent:
                 "Il tuo focus è esclusivamente la MAPPA DEI LIVELLI DI PREZZO."
             ),
             instructions=[
-                "Inizia SEMPRE la tua risposta con la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
-                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA nel formato ESATTO: "
-                "'✅ NomeTecnica — breve nota operativa' se la tecnica è presente nei dati correnti, "
-                "'❌ NomeTecnica — non rilevato' se la tecnica non è applicabile ai dati correnti. "
-                "Elenca almeno le tecniche principali di ogni libro della FOCUS SKILLS. "
+                "Inizia SEMPRE la tua risposta con la sezione '## SINTESI OPERATIVA' (vedi campi obbligatori). "
+                "Scrivi la SINTESI OPERATIVA IMMEDIATAMENTE come prima sezione — prima di qualsiasi analisi dettagliata. "
+                "Dopo la SINTESI OPERATIVA, scrivi la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
+                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA usando ESATTAMENTE uno di questi 3 stati: "
+                "'✅ NomeTecnica — [nota operativa breve]' → tecnica rilevata e applicata ai dati correnti; "
+                "'🔍 NomeTecnica — non rilevato' → tecnica applicabile MA nessun livello/zona significativo identificabile nei dati correnti (monitorare per sviluppi futuri); "
+                "'⛔ NomeTecnica — non applicabile' → tecnica non pertinente a questo asset o timeframe (es. Donchian Channel su asset con storico insufficiente, Pivot Points settimanali su asset intraday senza continuità, ecc.). "
+                "La distinzione tra 🔍 e ⛔ è critica per la qualità del confluence score: "
+                "🔍 = livello potenziale da monitorare, ⛔ = non contribuisce al punteggio di confluenza. "
+                "Elenca TUTTE le tecniche principali di ogni libro della FOCUS SKILLS. "
                 "Poi prosegui con l'analisi dettagliata.",
+
                 "VINCOLO FONDAMENTALE: se la sezione 'FOCUS SKILLS' è presente nel prompt, "
                 "devi analizzare TUTTE le tecniche elencate in essa (sono obbligatorie, non opzionali). "
                 "Dopo averle analizzate tutte, puoi integrare con altri metodi di identificazione S/R "
                 "presenti nelle Skill caricate (Murphy, Bulkowski, Williams) che ritieni utili.",
-                "Per ogni tecnica consulta le tue Skill per i criteri di identificazione precisi "
-                "e il calcolo del punteggio di confluenza.",
+
+                "PRIORITÀ DEL TUO VALORE AGGIUNTO: i livelli Fibonacci, Pivot Points e swing "
+                "highs/lows sono già precalcolati nel contesto che ricevi. "
+                "NON limitarti a rielencarli — usali come VALIDATORI. "
+                "Il tuo contributo principale è identificare ciò che NON è precalcolato: "
+                "(1) Supply & Demand Zones istituzionali: candele di impulso forte seguite da allontanamento "
+                "rapido — queste zone hanno alta probabilità di reazione al re-test; "
+                "(2) Order Blocks: ultima candela bearish prima di un impulso rialzista (bullish OB) o "
+                "ultima candela bullish prima di un impulso ribassista (bearish OB); "
+                "(3) Fair Value Gaps / Imbalance Zones: zone di prezzo non coperte da candele sovrapposte; "
+                "(4) Zone con test multipli (3+ tocchi): ogni test aggiuntivo aumenta la rilevanza. "
+                "Usa Fibonacci e Pivot per AUMENTARE il punteggio di confluenza delle zone che identifichi "
+                "dai dati OHLCV grezzi.",
+
+                "USO COMPLETO DELLE SKILL (5 layer): per ogni tecnica applicata: "
+                "(L1) spiega perché questo livello/zona è strutturalmente significativo; "
+                "(L2) verifica i criteri di identificazione precisi dalla Skill; "
+                "(L3) collega il livello con evidenze da altri strumenti nel contesto "
+                "(es. 'questa zona di supply coincide con il Fibonacci 61.8% e con il VWAP weekly'); "
+                "(L4) segnala se si applicano condizioni anomale che riducono l'affidabilità "
+                "(es. livello non testato da mesi, bassa liquidità storica in quella zona); "
+                "(L5) applica il ragionamento dell'analista: cosa succede se il prezzo arriva a questo livello? "
+                "Quale comportamento ti aspetti (rimbalzo, rottura, fake-out)? Perché?",
+
                 "Analizza i livelli su TUTTI i timeframe: inizia dai livelli di lungo "
                 "termine (mensili/settimanali) e scendi fino ai livelli intraday.",
-                "Identifica almeno 3 livelli di SUPPORTO e 3 di RESISTENZA significativi, "
-                "ordinandoli per importanza e distanza dal prezzo corrente.",
-                "Per ogni livello indica: origine (tecnica applicata + libro), "
-                "numero di tocchi, e punteggio di confluenza (1-5 punti).",
-                "Identifica le ZONE DI CONFLUENZA (punteggio ≥ 3): queste sono le zone "
-                "dove il prezzo ha la massima probabilità di reagire.",
-                "Rispetta il Sentiment Macro: in bias BEARISH evidenzia le resistenze; "
-                "in bias BULLISH evidenzia i supporti come zone di opportunità.",
+
+                "Per ogni livello/zona indica: origine (tecnica + libro), numero di test, "
+                "punteggio di confluenza (1-5 punti: +1 per ogni tecnica indipendente che lo valida).",
+                "Identifica le ZONE DI CONFLUENZA (punteggio ≥ 3): massima probabilità di reazione.",
+
+                "ATTENZIONE ALLE ANOMALIE (L4): se un livello è stato testato molte volte "
+                "e ha già fallito di recente, o se è su un timeframe di liquidità bassa, "
+                "riduci il punteggio e dichiaralo esplicitamente.",
+
+                "Rispetta il Sentiment Macro: in bias BEARISH evidenzia le resistenze/supply zones; "
+                "in bias BULLISH evidenzia i supporti/demand zones come zone di opportunità.",
+
                 "Fornisci la struttura S/R in formato tabellare (Markdown) per massima leggibilità.",
-                "Concludi con il livello più critico del momento e il motivo per cui "
-                "è strategicamente rilevante per il trading nelle prossime sessioni.",
+
+                "PRIMA SEZIONE OBBLIGATORIA — '## SINTESI OPERATIVA' con esattamente questi campi (scrivila PRIMA di STRUMENTI UTILIZZATI e dell'analisi dettagliata): "
+                "- **Zona Critica Superiore (Resistenza/Supply)**: [range di prezzo] — confluenza X/5 — origine "
+                "- **Zona Critica Inferiore (Supporto/Demand)**: [range di prezzo] — confluenza X/5 — origine "
+                "- **Supporto Immediato**: [prezzo esatto] "
+                "- **Resistenza Immediata**: [prezzo esatto] "
+                "- **Livello più Critico del Momento**: [prezzo o range] — MOTIVAZIONE in 1 frase "
+                "- **Bias Strutturale per il Macro Agent**: breve giudizio operativo (1-2 frasi)",
+
                 "Rispondi in italiano in modo professionale e strutturato.",
             ],
             skills=skills,
@@ -119,10 +158,14 @@ DATI MERCATO (OHLCV Multi-Timeframe):
 SENTIMENT MACRO DA RISPETTARE (fornito dall'agente Macro Strategist):
 {macro_sentiment}
 {focus_section}
-Esegui la mappatura completa di tutti i livelli di prezzo chiave.
-Identifica zone di confluenza, Fibonacci, Supply & Demand Zones, Pivot Points e VWAP.
-PRIMA SEZIONE OBBLIGATORIA: '## 🛠️ STRUMENTI UTILIZZATI' con ogni tecnica su riga separata nel formato: ✅ NomeTecnica — nota / ❌ NomeTecnica — non rilevato
-Poi usa tabelle Markdown per i livelli S/R.
+Esegui la mappatura completa dei livelli di prezzo chiave.
+Priorità: identifica Supply & Demand Zones istituzionali, Order Blocks e Fair Value Gaps dai dati OHLCV grezzi.
+Usa Fibonacci, Pivot Points e swing (già nel contesto precalcolato) per VALIDARE e aumentare il punteggio di confluenza.
+
+STRUTTURA RISPOSTA OBBLIGATORIA (rispetta quest'ordine esatto):
+1. ## SINTESI OPERATIVA — sezione strutturata con i campi obbligatori (PRIMA di tutto)
+2. ## 🛠️ STRUMENTI UTILIZZATI — 3 stati: ✅ rilevato / 🔍 non rilevato (monitorare) / ⛔ non applicabile
+3. Mappatura livelli per timeframe (tabelle Markdown) con punteggio confluenza 1-5 e origine
 """
         try:
             response = self.agent.run(prompt)

@@ -920,20 +920,30 @@ def _compute_filtered_stats(analysis_ids: list) -> dict:
             WHERE analysis_id IN ({placeholders}) AND forecast_error_pct IS NOT NULL
         """, analysis_ids).fetchone()
 
+        # ── Tempi medi ────────────────────────────────────────────────────────
+        times_row = conn.execute(f"""
+            SELECT AVG(days_to_entry) as avg_days_entry,
+                   AVG(days_to_exit)  as avg_days_exit
+            FROM trade_outcomes
+            WHERE analysis_id IN ({placeholders}) AND days_to_entry IS NOT NULL
+        """, analysis_ids).fetchone()
+
         conn.close()
 
     return {
-        "total_analyses":   total_analyses,
-        "total_verified":   total_verified,
-        "win_rate":         win_rate,
-        "wins":             wins,
-        "losses":           losses,
-        "outcome_dist":     outcome_dist,
-        "avg_pnl":          _round(pnl_row["avg_pnl"] if pnl_row else None),
-        "max_pnl":          _round(pnl_row["max_pnl"] if pnl_row else None),
-        "min_pnl":          _round(pnl_row["min_pnl"] if pnl_row else None),
-        "avg_forecast_err": _round(fcst_row["avg_err"] if fcst_row else None),
-        "dir_accuracy":     _round((fcst_row["dir_accuracy"] or 0) * 100 if fcst_row else None),
+        "total_analyses":    total_analyses,
+        "total_verified":    total_verified,
+        "win_rate":          win_rate,
+        "wins":              wins,
+        "losses":            losses,
+        "outcome_dist":      outcome_dist,
+        "avg_pnl":           _round(pnl_row["avg_pnl"] if pnl_row else None),
+        "max_pnl":           _round(pnl_row["max_pnl"] if pnl_row else None),
+        "min_pnl":           _round(pnl_row["min_pnl"] if pnl_row else None),
+        "avg_forecast_err":  _round(fcst_row["avg_err"] if fcst_row else None),
+        "dir_accuracy":      _round((fcst_row["dir_accuracy"] or 0) * 100 if fcst_row else None),
+        "avg_days_to_entry": _round(times_row["avg_days_entry"] if times_row else None),
+        "avg_days_to_exit":  _round(times_row["avg_days_exit"] if times_row else None),
     }
 
 

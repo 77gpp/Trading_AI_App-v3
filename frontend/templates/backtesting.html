@@ -415,6 +415,19 @@
 
           <div
             style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin:10px 0 6px">
+            Agenti Specialisti — Limiti</div>
+          <div class="calib-row">
+            <span class="calib-label" title="Numero massimo di caratteri per-specialista passati al Volume Agent. None = nessun limite (consigliato)">
+              Volume Agent Chars
+            </span>
+            <input type="number" id="calib-VOLUME_AGENT_CHARS_PER_SPECIALIST" class="calib-input"
+              value="{% if config_calibrazione.VOLUME_AGENT_CHARS_PER_SPECIALIST %}{{ config_calibrazione.VOLUME_AGENT_CHARS_PER_SPECIALIST }}{% endif %}"
+              min="500" max="50000" placeholder="Leave empty for no limit">
+          </div>
+
+
+          <div
+            style="font-size:10px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.8px;margin:10px 0 6px">
             Notizie</div>
           <div class="calib-row">
             <span class="calib-label">Notizie Alpaca (max)</span>

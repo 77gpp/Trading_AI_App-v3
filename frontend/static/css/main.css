@@ -76,14 +76,19 @@
   padding: 0;
 }
 
-html, body {
+html {
   height: 100%;
+}
+
+body {
+  min-height: 100%;
   font-family: var(--font-body);
   background: var(--bg-base);
   color: var(--text-primary);
   font-size: 14px;
   line-height: 1.6;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 /* Scrollbar personalizzata */
@@ -1266,6 +1271,7 @@ input:checked + .toggle-slider::before {
 .setup-metric-value.tp      { color: var(--accent); }
 .setup-metric-value.bullish { color: var(--accent); }
 .setup-metric-value.bearish { color: var(--danger); }
+.setup-metric-value.neutral { color: #94a3b8; }
 
 /* ---- Toast Notifications ---------------------------------- */
 .toast-container {

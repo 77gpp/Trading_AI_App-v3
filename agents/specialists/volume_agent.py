@@ -65,30 +65,64 @@ class VolumeAgent:
                 "indipendentemente da cosa dicono gli altri agenti."
             ),
             instructions=[
-                "Inizia SEMPRE la tua risposta con la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
-                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA nel formato ESATTO: "
-                "'✅ NomeTecnica — breve nota operativa' se la tecnica è presente nei dati correnti, "
-                "'❌ NomeTecnica — non rilevato' se la tecnica non è applicabile ai dati correnti. "
-                "Elenca almeno le tecniche principali di ogni libro della FOCUS SKILLS. "
+                "Inizia SEMPRE la tua risposta con la sezione '## SINTESI OPERATIVA' (vedi campi obbligatori). "
+                "Scrivi la SINTESI OPERATIVA IMMEDIATAMENTE come prima sezione — prima di qualsiasi analisi dettagliata. "
+                "Dopo la SINTESI OPERATIVA, scrivi la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
+                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA usando ESATTAMENTE uno di questi 3 stati: "
+                "'✅ NomeTecnica — [nota operativa breve]' → segnale VSA/Wyckoff identificato e applicato; "
+                "'🔍 NomeTecnica — non rilevato' → tecnica applicabile MA il segnale specifico non è presente nei dati correnti (da monitorare); "
+                "'⛔ NomeTecnica — non applicabile' → tecnica non pertinente a questo asset/contesto (es. Volume Profile su asset senza tick data, Wyckoff Spring su asset in trend fortissimo senza laterale, ecc.). "
+                "La distinzione è fondamentale: 🔍 contribuisce al contesto 'potenziale', ⛔ viene escluso dall'analisi. "
+                "Elenca TUTTE le tecniche principali di ogni libro della FOCUS SKILLS. "
                 "Poi prosegui con l'analisi dettagliata.",
+
                 "VINCOLO FONDAMENTALE: se la sezione 'FOCUS SKILLS' è presente nel prompt, "
                 "devi analizzare TUTTE le tecniche elencate in essa (sono obbligatorie, non opzionali). "
                 "Dopo averle analizzate tutte, puoi integrare con altri segnali VSA/Wyckoff "
                 "presenti nelle Skill caricate (Tom Williams, Wyckoff, Larry Williams) che ritieni utili.",
-                "Per ogni tecnica consulta le tue Skill per i criteri esatti di identificazione.",
-                "Analizza il volume degli ultimi 5-20 periodi su ogni timeframe disponibile.",
-                "Applica la legge di Sforzo vs Risultato: le candele ad alto volume "
-                "producono movimenti ampi nella stessa direzione? Se no → ALERT di assorbimento.",
+
+                "USO COMPLETO DELLE SKILL (5 layer): per ogni segnale VSA/Wyckoff identificato: "
+                "(L1) spiega la logica istituzionale dietro il segnale — chi sta comprando/vendendo e perché? "
+                "(L2) verifica i criteri esatti dalla Skill: percentuale di variazione volume, "
+                "posizione della chiusura nel range, relazione spread/volume; "
+                "(L3) collega il segnale VSA con la fase Wyckoff e con i segnali degli altri specialisti — "
+                "un segnale VSA che coincide con un pattern candlestick E con un livello S/R chiave "
+                "ha peso triplo; dichiaralo esplicitamente; "
+                "(L4) segnala anomalie che riducono l'affidabilità: orari di bassa liquidità, "
+                "asset con volume strutturalmente basso, divergenze ambigue in laterale prolungato; "
+                "(L5) applica il ragionamento dell'analista: il volume sta raccontando accumulazione furtiva "
+                "o distribuzione travestita da forza? Cosa ci dicono le ultime 5-10 barre volumetriche "
+                "sulla vera intenzione dei partecipanti istituzionali?",
+
+                "ANALISI BAR-BY-BAR: non limitarti all'OBV summary già nel contesto — "
+                "analizza le ultime 5-20 barre OHLCV+Volume raw per identificare segnali VSA specifici "
+                "(Up-thrust, No Demand, Stopping Volume, Test, No Supply, Climactic Action). "
+                "Questi segnali sono il tuo contributo unico — non sono precalcolati.",
+
+                "Applica la legge di Sforzo vs Risultato: candele ad alto volume "
+                "producono movimenti ampi nella stessa direzione? Se no → ALERT assorbimento.",
                 "Identifica la FASE WYCKOFF attiva: Accumulazione / Markup / Distribuzione / Markdown.",
-                "Verifica il Volume Profile se i dati lo permettono: indica la posizione "
-                "rispetto a POC, VAH, VAL e zone HVN/LVN.",
-                "IL VERDETTO VOLUMETRICO È OBBLIGATORIO e deve contenere:",
-                "  • Fase Wyckoff attiva",
-                "  • Segnale VSA dominante (tecnica dal libro applicata)",
-                "  • CONFERMA o DIVERGENZA rispetto ai segnali degli altri specialisti",
-                "  • Livello di RISCHIO: NORMALE / ELEVATO",
-                "REGOLA ASSOLUTA: se i volumi DIVERGONO dai segnali tecnici degli altri specialisti "
-                "→ dichiarare RISCHIO ELEVATO e spiegare perché il segnale è inaffidabile.",
+                "Verifica il Volume Profile se i dati lo permettono: POC, VAH, VAL, zone HVN/LVN.",
+
+                "SISTEMA DI VERDETTO A 3 LIVELLI — scegli UNO solo: "
+                "• NORMALE: volume conferma chiaramente i segnali degli altri specialisti — "
+                "Sforzo e Risultato coerenti, nessuna divergenza rilevata; "
+                "• INCERTO: dati volumetrici insufficienti, ambigui o in conflitto interno — "
+                "non è possibile confermare né smentire con certezza (es. dati scarsi, "
+                "volume neutro senza segnali VSA chiari, fase Wyckoff non identificabile); "
+                "• ELEVATO: divergenza volumetrica confermata — Sforzo e Risultato incoerenti, "
+                "segnali VSA di distribuzione o assorbimento mentre il prezzo simula forza/debolezza. "
+                "REGOLA ASSOLUTA: ELEVATO è inappellabile e non dipende dal voto degli altri specialisti.",
+
+                "PRIMA SEZIONE OBBLIGATORIA — '## SINTESI OPERATIVA' con esattamente questi campi (scrivila PRIMA di STRUMENTI UTILIZZATI e dell'analisi dettagliata): "
+                "- **Fase Wyckoff**: Accumulazione / Markup / Distribuzione / Markdown / Transizione "
+                "- **Segnale VSA Dominante**: [NomeTecnica — libro — timeframe] "
+                "- **Validazione Specialisti**: CONFERMA / INCERTO / DIVERGENZA "
+                "- **Livello di Rischio**: NORMALE / INCERTO / ELEVATO "
+                "- **Motivazione** (se INCERTO o ELEVATO): spiegazione precisa in 2-3 frasi "
+                "- **Condizione per Rivalutazione** (se ELEVATO): [condizione volumetrica specifica "
+                "che cambierebbe il giudizio — es. 'chiusura 4H sopra X con volume > media × 1.5']",
+
                 "Rispetta il Sentiment Macro come contesto aggiuntivo.",
                 "Rispondi in italiano in modo professionale e strutturato.",
             ],
@@ -152,9 +186,14 @@ SENTIMENT MACRO DA RISPETTARE (fornito dall'agente Macro Strategist):
 {focus_section}{other_section}
 Esegui un'analisi volumetrica profonda usando VSA e il framework di Wyckoff.
 Segui la checklist in 6 passi della tua Skill: Volume assoluto → Sforzo vs Risultato →
-Chiusura nel range → Segnali VSA → Fase Wyckoff → Volume Profile.
-Il Verdetto Volumetrico finale è OBBLIGATORIO: Fase Wyckoff + Segnale VSA + CONFERMA/DIVERGENZA + RISCHIO.
-PRIMA SEZIONE OBBLIGATORIA: '## 🛠️ STRUMENTI UTILIZZATI' con ogni tecnica su riga separata nel formato: ✅ NomeTecnica — nota / ❌ NomeTecnica — non rilevato
+Chiusura nel range → Segnali VSA bar-by-bar → Fase Wyckoff → Volume Profile.
+Applica i 5 layer della Skill (L1-L5) per ogni segnale VSA rilevante.
+
+STRUTTURA RISPOSTA OBBLIGATORIA (rispetta quest'ordine esatto):
+1. ## SINTESI OPERATIVA — sezione strutturata con i campi obbligatori (PRIMA di tutto, incluso NORMALE/INCERTO/ELEVATO)
+2. ## 🛠️ STRUMENTI UTILIZZATI — 3 stati: ✅ rilevato / 🔍 non rilevato (monitorare) / ⛔ non applicabile
+3. Analisi VSA bar-by-bar (ultime 5-20 barre per timeframe)
+4. Fase Wyckoff e narrativa istituzionale
 """
         try:
             response = self.agent.run(prompt)
