@@ -1,5 +1,6 @@
 from sqlalchemy import true
 import os
+import re
 import yfinance as yf
 from agno.agent import Agent
 from agno.db.sqlite import SqliteDb
@@ -10,16 +11,15 @@ from loguru import logger
 import Calibrazione
 from agents.alpaca_news_tool import get_alpaca_news
 
+
 class AgnoMacroExpert:
     """Strategist Macroeconomico V5 (Configurable & Free)."""
-    
+
     def __init__(self):
-        # Configurazione Agente Agno Macro Expert con Skill Nativa
         self.api_key = Calibrazione.GEMINI_API_KEY
         self.model_id = Calibrazione.MODEL_MACRO_EXPERT
         self.db_path = Calibrazione.DATABASE_PATH
-        
-        # 1. Configurazione Storage Locale (SQLite su Mac)
+
         self.storage = None
         if Calibrazione.STORAGE_LOCATION == "local":
             self.storage = SqliteDb(
@@ -28,16 +28,14 @@ class AgnoMacroExpert:
             )
             logger.info(f"[AGNO MACRO] Usando storage locale: {self.db_path}")
 
-        # 2. Inizializzazione Agente
         from agents.model_factory import get_model
-        
-        # Percorso della Skill ufficiale Agno dalla calibrazione 
+
         macro_skill_dir = Calibrazione.MACRO_SKILL_DIR
-        
-        # Otteniamo il modello (Groq/Qwen o Gemini)
-        llm_model = get_model(self.model_id, temperature=Calibrazione.TEMPERATURE_MACRO_EXPERT, agent_name="macro_expert")
-        
-        # Percorso della Skill per il verdetto finale
+        llm_model = get_model(
+            self.model_id,
+            temperature=Calibrazione.TEMPERATURE_MACRO_EXPERT,
+            agent_name="macro_expert"
+        )
         verdict_skill_dir = Calibrazione.VERDICT_SKILL_DIR
 
         self.agent = Agent(
@@ -153,11 +151,8 @@ class AgnoMacroExpert:
                 LocalSkills(os.path.abspath(verdict_skill_dir), validate=False),
             ]),
             tools=[
-                # DuckDuckGo News: funzione standalone (stessa struttura di Alpaca)
                 get_duckduckgo_news,
-                # Alpaca News: funzione standalone con mapping ETF proxy
                 get_alpaca_news,
-                # YFinance: solo prezzo corrente e raccomandazioni analisti
                 YFinanceTools(enable_stock_price=True, enable_analyst_recommendations=True, enable_company_info=False),
             ],
             instructions=[
@@ -191,7 +186,7 @@ class AgnoMacroExpert:
             num_history_messages=3,
             markdown=True,
         )
-        # ── Verdict Agent separato: nessuna memoria dal ciclo macro (no contamination) ──
+
         verdict_storage = None
         if Calibrazione.STORAGE_LOCATION == "local":
             verdict_storage = SqliteDb(
@@ -199,7 +194,7 @@ class AgnoMacroExpert:
                 db_file=self.db_path
             )
 
-        verdict_llm = get_model(self.model_id, temperature=0.3, agent_name="macro_expert")
+        verdict_llm = get_model(self.model_id, temperature=0.2, agent_name="macro_expert")
 
         self.verdict_agent = Agent(
             name="Verdict Synthesizer",
@@ -211,7 +206,11 @@ class AgnoMacroExpert:
                 "gerarchia veto volumetrico > allineamento macro-tecnico > allineamento MTF > "
                 "confluence score > conferma pattern. "
                 "Produci verdetti precisi con prezzi numerici. Non inventi livelli: "
-                "usi esclusivamente i livelli forniti dagli agenti specialisti."
+                "usi esclusivamente i livelli forniti dagli agenti specialisti. "
+                "Il tuo obiettivo NON è essere ultra-prudente: il tuo obiettivo è decidere in modo professionale "
+                "se esiste un setup operativo sufficiente. "
+                "NO TRADE è consentito solo quando i dati sono realmente insufficienti, il veto volume è esplicito, "
+                "oppure il conflitto tra agenti rende impossibile definire un setup con rischio controllato."
             ),
             skills=Skills(loaders=[
                 LocalSkills(os.path.abspath(macro_skill_dir), validate=False),
@@ -222,37 +221,49 @@ class AgnoMacroExpert:
                 "Consulta i DETTAGLI COMPLETI solo per trovare prezzi specifici non presenti in sintesi.",
 
                 "REGOLA CONFLUENZA — calcola il confluence score correttamente: "
-                "i valori numerici precalcolati (RSI, MACD, Fibonacci, Pivot Points, medie mobili) "
-                "condivisi nel contesto NON sono fattori indipendenti — sono la stessa fonte. "
+                "i valori numerici precalcolati (RSI, MACD, Fibonacci, Pivot Points, medie mobili, Bollinger) "
+                "condivisi nel contesto NON sono fattori indipendenti quando derivano dalla stessa base dati. "
                 "Conta come confluenza SOLO quando agenti DIVERSI con metodologie DIVERSE "
-                "identificano lo stesso segnale su basi diverse. "
+                "identificano lo stesso segnale su basi realmente differenti. "
                 "Esempi: Pattern Agent trova un Bullish Engulfing + Trend Agent dichiara HH+HL = 2 fattori. "
                 "SR Agent cita Fibonacci 61.8% + Trend Agent cita lo stesso Fibonacci 61.8% = 1 solo fattore. "
-                "Score operativo minimo: 3 fattori indipendenti reali.",
+                "Score operativo minimo preferenziale: 3 fattori indipendenti reali. "
+                "Tuttavia, se esistono 2 fattori indipendenti forti + livelli chiari + volume non negativo, "
+                "il trade è ammesso con Qualità setup Media o Bassa. "
+                "NON usare una soglia rigida per forzare NO TRADE quando esiste comunque un setup definibile.",
 
-                "GERARCHIA VETO: se Volume Agent dichiara RISCHIO ELEVATO = NO TRADE automatico. "
-                "Se Volume Agent dichiara INCERTO: segnala la condizione, riduci confidence, "
-                "ma non bloccare automaticamente — valuta il resto delle evidenze. "
-                "Se INCERTO con score confluenza < 3 = NO TRADE per doppio filtro.",
+                "GERARCHIA VETO: se Volume Agent dichiara in modo ESPLICITO e NON ambiguo 'RISCHIO ELEVATO' "
+                "oppure 'VETO OPERATIVO' = NO TRADE automatico. "
+                "Se Volume Agent dichiara 'INCERTO', 'NEUTRO', 'ATTENDISTA' o formule simili: "
+                "riduci confidence e qualità, ma NON bloccare automaticamente il trade. "
+                "Con volume incerto, il trade resta possibile se ci sono almeno 2 conferme indipendenti "
+                "e livelli numerici chiari per Entry, SL e Target.",
 
-                "ANTI-BIAS MACRO — il sentiment macro è un FILTRO DIREZIONALE, non un override assoluto. "
-                "Regola: se 3 o più specialisti tecnici convergono in direzione OPPOSTA al macro sentiment, "
-                "non puoi ignorare il segnale tecnico. In quel caso: "
-                "(a) dichiara esplicitamente 'CONTRADDIZIONE MACRO-TECNICA'; "
-                "(b) applica il Filtro #6 della skill no-trade-filters (Contraddizione Macro-Tecnica senza Risoluzione); "
-                "(c) riduci la conviction macro e assegna Confidence Bassa; "
-                "(d) il trade rimane possibile solo se Volume Agent ha dichiarato NORMALE + score confluenza ≥ 8. "
-                "Il macro non ha potere di veto autonomo — quel potere appartiene SOLO al Volume Agent (ELEVATO). "
-                "Non usare il macro sentiment come scusa per NO TRADE quando le tecniche sono allineate e il volume conferma.",
+                "ANTI-BIAS MACRO — il sentiment macro è un FILTRO DIREZIONALE, non un veto assoluto. "
+                "Se 3 o più specialisti tecnici convergono in direzione opposta al macro sentiment, "
+                "dichiara esplicitamente 'CONTRADDIZIONE MACRO-TECNICA'. "
+                "In quel caso riduci la confidence ma NON forzare NO TRADE automaticamente. "
+                "Il trade resta possibile se il setup tecnico è chiaro, il rischio è controllabile "
+                "e il Volume Agent NON ha emesso veto esplicito.",
 
                 "Per i livelli di prezzo (Entry/SL/TP) usa ESCLUSIVAMENTE prezzi forniti dagli specialisti. "
-                "Se un livello non è stato fornito esplicitamente, scrivi 'SR Agent non ha fornito livello preciso — non disponibile' "
-                "— non inventare mai. I livelli devono essere sempre numerici.",
+                "Se un livello non è stato fornito esplicitamente in sintesi, cercalo nei dettagli completi. "
+                "Se ancora manca, scrivi 'livello non disponibile' — non inventare mai.",
 
-                "Per NO TRADE: applica SKILL 11 macro-strategist. "
-                "I prezzi nei setup condizionali DEVONO provenire da SR Agent/Volume Agent/Pattern Agent. "
-                "Ogni prezzo deve avere la sua fonte tra parentesi quadre: '3.120 [SR Agent — demand zone 4H]'. "
-                "Se il livello non è stato fornito da nessun agente: scrivi '[nessun agente ha fornito questo livello]' — non inventare.",
+                "Se almeno due specialisti sono coerenti nella direzione, il Volume Agent NON ha veto esplicito, "
+                "e dai dettagli completi emergono livelli numerici sufficienti, devi preferire un verdetto Bullish o Bearish "
+                "anziché NO TRADE.",
+
+                "Per NO TRADE: applicalo solo in uno di questi casi reali: "
+                "1) veto volume esplicito ('RISCHIO ELEVATO' o 'VETO OPERATIVO'); "
+                "2) mancano livelli numerici minimi per costruire Entry/SL/TP; "
+                "3) direzioni inconciliabili senza prevalenza tecnica; "
+                "4) rischio non quantificabile. "
+                "Non usare NO TRADE come default prudenziale.",
+
+                "Ogni prezzo deve avere la sua fonte tra parentesi quadre: "
+                "'3.120 [SR Agent — demand zone 4H]'. "
+                "Se il livello non è stato fornito da nessun agente: scrivi '[nessun agente ha fornito questo livello]'.",
 
                 "Rispondi esclusivamente in italiano. Inizia direttamente con '**Bias Primario**:'.",
             ],
@@ -261,71 +272,65 @@ class AgnoMacroExpert:
             markdown=True,
         )
         logger.success(f"[AGNO] Agente Macro Expert pronto con modello: {llm_model.id}")
-        logger.success(f"[AGNO] Verdict Agent pronto (no history, temperatura 0.3)")
+        logger.success(f"[AGNO] Verdict Agent pronto (no history, temperatura 0.2)")
 
     @staticmethod
     def _extract_sintesi(agent_text: str, agent_name: str) -> str:
         """
         Estrae la sezione '## SINTESI OPERATIVA' dall'output di uno specialista.
-
-        Pattern permissivo — gestisce varianti LLM comuni:
-          - ## SINTESI OPERATIVA
-          - ### SINTESI OPERATIVA
-          - ## 📊 SINTESI OPERATIVA  (emoji prima del titolo)
-          - ## SINTESI OPERATIVA 📋  (emoji dopo)
-          - ## **SINTESI OPERATIVA** (bold)
-
-        Se la sezione non è trovata restituisce un messaggio di errore esplicito.
-        Nessun fallback su contenuto parziale: dati inconsistenti non vengono mai
-        passati al verdict agent come se fossero una sintesi valida.
+        Se la sezione non è trovata, restituisce un messaggio di errore esplicito
+        con estratto finale per diagnostica. Nessun fallback su contenuto parziale.
         """
-        import re
+        if not agent_text or not isinstance(agent_text, str):
+            return (
+                f"❌ ERRORE [{agent_name}]: output vuoto o non valido. "
+                f"Analisi non disponibile per la sintesi del verdetto."
+            )
 
         match = re.search(
             r'#{2,4}[^\n#]*SINTESI\s+OPERATIVA[^\n]*\n(.*?)(?=\n#{1,4}[^\n]|\Z)',
-            agent_text, re.IGNORECASE | re.DOTALL
+            agent_text,
+            re.IGNORECASE | re.DOTALL
         )
         if match:
             return f"=== {agent_name} — SINTESI OPERATIVA ===\n{match.group(1).strip()}"
 
-        tail = agent_text[-200:].strip() if agent_text else "(output vuoto)"
+        tail = agent_text[-400:].strip()
         logger.error(
             f"[AGNO MACRO] {agent_name}: sezione '## SINTESI OPERATIVA' non prodotta. "
             f"Tail output: {repr(tail)}"
         )
         return (
             f"❌ ERRORE [{agent_name}]: sezione '## SINTESI OPERATIVA' non presente nell'output. "
-            f"L'agente non ha rispettato il formato strutturato richiesto — "
-            f"analisi di {agent_name} non disponibile per la sintesi del verdetto."
+            f"L'agente non ha rispettato il formato strutturato richiesto. "
+            f"Causa probabile: risposta troncata, timeout, o formato non seguito dal modello. "
+            f"Output di {agent_name} NON disponibile per la sintesi del verdetto.\n\n"
+            f"ESTRATTO FINALE OUTPUT (per diagnostica):\n{tail}"
         )
 
+    @staticmethod
+    def _has_explicit_volume_veto(volume_text: str) -> bool:
+        """
+        Rileva il veto esplicito del VolumeAgent.
+        Solo le keyword hard triggherano il veto — formule ambigue come
+        'incerto' o 'attendista' non bloccano il trade.
+        """
+        if not volume_text:
+            return False
+        text = volume_text.lower()
+        hard_veto_patterns = [
+            "rischio elevato",
+            "veto operativo",
+            "no trade automatico",
+            "setup da evitare",
+            "assenza totale di conferma volumetrica",
+        ]
+        return any(p in text for p in hard_veto_patterns)
+
     def analizza(self, query="Analizza l'attuale scenario globale", start_date=None, end_date=None, symbol=None, last_price=None):
-        """
-        Esegue l'analisi macro strategica.
-
-        I dati con vincolo temporale (Alpaca news, YFinance storico) vengono pre-fetchati
-        con date esatte PRIMA di chiamare l'LLM, garantendo che la finestra di analisi sia
-        rispettata in modo deterministico e non affidato al modello.
-
-        DuckDuckGo non supporta date assolute via API: le date vengono iniettate nella query
-        e il modello è istruito a filtrare i risultati per data.
-
-        Args:
-            query:      Query di analisi (es. "GC=F news and global macro sentiment").
-            start_date: Data inizio periodo ISO YYYY-MM-DD.
-            end_date:   Data fine periodo ISO YYYY-MM-DD.
-            symbol:     Ticker symbol per il pre-fetch (es. "GC=F"). Se None, si usa
-                        il primo token della query come fallback.
-            last_price: Prezzo corrente già calcolato dall'analisi (dall'ultimo bar 1H).
-                        Se fornito, sovrascrive l'ultimo close giornaliero nel report.
-        """
         if not symbol:
             symbol = query.split()[0]
 
-        # ── 1. Pre-fetch Alpaca News: RIMOSSO (Ora è un tool dinamico) ────
-        # L'agente chiamerà get_alpaca_news durante l'analisi se necessario.
-
-        # ── 2. Pre-fetch YFinance storico (date esatte garantite) ─────────
         yfinance_section = ""
         if start_date:
             try:
@@ -336,11 +341,10 @@ class AgnoMacroExpert:
                     hist_str = hist[["Open", "High", "Low", "Close", "Volume"]].round(2).to_string()
                     perf = ((hist["Close"].iloc[-1] - hist["Close"].iloc[0]) / hist["Close"].iloc[0] * 100)
                     daily_last_close = float(hist["Close"].iloc[-1])
-                    # Se last_price è passato dall'esterno (da df_1h), è più aggiornato del close giornaliero
                     last_close = float(last_price) if (last_price and last_price > 0) else daily_last_close
                     prev_close = hist["Close"].iloc[-2] if len(hist) > 1 else daily_last_close
-                    last_pct   = (daily_last_close - float(prev_close)) / float(prev_close) * 100
-                    last_vol   = hist["Volume"].iloc[-1]
+                    last_pct = (daily_last_close - float(prev_close)) / float(prev_close) * 100
+                    last_vol = hist["Volume"].iloc[-1]
                     yfinance_section = (
                         f"\n\n---\nDATA STORICA YAHOO FINANCE ({start_date} → {end_date or 'oggi'}) — periodo esatto:\n"
                         f"⚠️ PREZZO CORRENTE VERIFICATO (usa ESATTAMENTE questo valore numerico, NON convertire, NON stimare):\n"
@@ -360,7 +364,6 @@ class AgnoMacroExpert:
                 logger.error(f"[AGNO MACRO] Errore pre-fetch YFinance storico: {e}")
                 yfinance_section = f"\n\n[ERRORE pre-fetch YFinance storico: {e}]\n"
 
-        # ── 3. Costruzione query arricchita ───────────────────────────────
         if start_date and end_date:
             duckduckgo_instruction = (
                 f"ISTRUZIONE get_duckduckgo_news: Quando chiami il tool get_duckduckgo_news, includi esplicitamente "
@@ -387,28 +390,7 @@ QUERY: {query}"""
             logger.error(f"[AGNO MACRO] ERRORE durante l'analisi: {e}")
             raise
 
-    def sintetizza_verdetto(self, nome_asset: str, macro_sentiment: str, results_tech: dict,
-                            projection_end_date: str = None) -> str:
-        """
-        Sintetizza il verdetto finale operativo integrando il sentiment macro con
-        le analisi dei 4 specialisti tecnici. Usa la skill trading-verdict-synthesizer
-        per applicare i framework professionali di decisione, risk management e filtri no-trade.
-
-        Args:
-            nome_asset:           Simbolo o nome dell'asset analizzato.
-            macro_sentiment:      Output dell'analisi macro (Step 1).
-            results_tech:         Dict {nome_specialista: testo_analisi} dei 4 specialisti tecnici.
-            projection_end_date:  Data obiettivo della proiezione futura (ISO YYYY-MM-DD).
-                                  Se fornita, il modello deve includere la sezione **Previsione Futura**.
-
-        Returns:
-            Stringa Markdown con il verdetto operativo completo.
-        """
-        from agents.agno_technical_team import _rimuovi_intro_inglese
-
-        # ── 1. Estrai SINTESI OPERATIVA strutturata da ogni specialista ──────
-        # Queste sezioni sono compatte (~200-400 chars) e contengono i campi chiave.
-        # Il macro agent li usa come input primario (evita 20k+ token non strutturati).
+    def sintetizza_verdetto(self, nome_asset: str, macro_sentiment: str, results_tech: dict, projection_end_date: str = None) -> str:
         spec_order = ("Pattern Analyst", "Trend Analyst", "SR Analyst", "Volume Analyst")
         sintesi_strutturata = ""
         sintesi_tecnica_completa = ""
@@ -423,6 +405,13 @@ QUERY: {query}"""
 
         if not almeno_una:
             return "> [!WARNING]\n> Nessuna analisi tecnica disponibile per generare il verdetto."
+
+        volume_text = results_tech.get("Volume Analyst", "")
+        volume_veto = self._has_explicit_volume_veto(volume_text)
+
+        logger.debug(f"[VERDICT INPUT] Asset: {nome_asset}")
+        logger.debug(f"[VERDICT INPUT] Volume veto esplicito: {volume_veto}")
+        logger.debug(f"[VERDICT INPUT] Sintesi strutturata:\n{sintesi_strutturata}")
 
         proiezione_section = ""
         if projection_end_date:
@@ -439,7 +428,7 @@ Dopo "**Gestione Rischio**" includi SEMPRE questa sezione con valori numerici re
 - Scenario Rialzista: [prezzo massimo atteso entro {projection_end_date}]
 - Scenario Ribassista: [prezzo minimo atteso entro {projection_end_date}]
 
-Tutti i valori devono essere prezzi numerici espliciti (es. 3200, non "intorno ai massimi").
+Tutti i valori devono essere prezzi numerici espliciti.
 Basa la previsione su: bias macro, struttura di mercato, momentum e livelli S/R chiave.
 """
 
@@ -460,6 +449,11 @@ SINTESI STRUTTURATE SPECIALISTI (usa queste come input primario):
 DETTAGLI COMPLETI SPECIALISTI (consulta solo per trovare prezzi specifici non in sintesi):
 ═══════════════════════════════════════════════
 {sintesi_tecnica_completa.strip()}
+
+═══════════════════════════════════════════════
+DIAGNOSTICA INTERNA:
+═══════════════════════════════════════════════
+Volume veto esplicito rilevato: {"SÌ" if volume_veto else "NO"}
 
 Consulta la tua skill 'trading-verdict-synthesizer' e produci il VERDETTO FINALE operativo.
 
@@ -483,17 +477,19 @@ Applica il decision framework professionale (no-trade filters, confluence score)
 > [!IMPORTANT]
 > [confluenza macro+tecnica, segnale VSA, fattore di rischio, cosa invaliderebbe il trade]
 {proiezione_section}
-IMPORTANTE:
+REGOLE OBBLIGATORIE:
 - Rispondi ESCLUSIVAMENTE in italiano.
 - La Sezione 1 è SEMPRE obbligatoria.
+- Se Volume veto esplicito rilevato = SÌ → Bias Primario = NO TRADE obbligatorio.
+- Se Volume veto esplicito rilevato = NO e ci sono almeno 2 conferme indipendenti con livelli numerici chiari → preferisci Bullish o Bearish.
 - Se il Bias Primario è Bullish o Bearish: compila Entry Suggerita, Stop Loss, Target 1, Target 2 con prezzi numerici reali.
-- Se il Bias Primario è NO TRADE: NON compilare Entry Suggerita / Stop Loss / Target 1 / Target 2 nel formato standard.
-  Sostituiscili con i due blocchi seguenti, ciascuno con prezzi numerici reali obbligatori:
+- Se il Bias Primario è NO TRADE: NON compilare Entry/SL/Target nel formato standard.
+  Sostituiscili con i due blocchi seguenti, ciascuno con prezzi numerici reali:
 
   **Setup Condizionale Rialzista** *(si attiva se: [condizione precisa])*:
   - **Condizione di Trigger**: [livello da rompere, timeframe, condizione volume]
-  - **Entry**: [PREZZO NUMERICO] [fonte: es. "SR Agent — demand zone 4H"]
-  - **Stop Loss**: [PREZZO NUMERICO] [fonte: es. "SR Agent — sotto minimo swing"]
+  - **Entry**: [PREZZO NUMERICO] [fonte]
+  - **Stop Loss**: [PREZZO NUMERICO] [fonte]
   - **Target 1**: [PREZZO NUMERICO] [fonte] — R:R minimo 1:2
   - **Target 2**: [PREZZO NUMERICO] [fonte]
 
@@ -504,19 +500,11 @@ IMPORTANTE:
   - **Target 1**: [PREZZO NUMERICO] [fonte] — R:R minimo 1:2
   - **Target 2**: [PREZZO NUMERICO] [fonte]
 
-  Per costruire i livelli condizionali segui il protocollo SKILL 11 (macro-strategist skill):
-  Passo 1: estrai demand/supply zone e order block dall'SR Analyst (usa i DETTAGLI COMPLETI se la sintesi non ha i prezzi).
-  Passo 2: identifica la fase Wyckoff e il segnale trigger dal Volume Analyst.
-  Passo 3: estrai il pattern di conferma dal Pattern Analyst.
-  Passo 4: costruisci trigger = [TIMEFRAME] + [AZIONE PREZZO] + [LIVELLO NUMERICO dall'SR Agent] + [CONDIZIONE VOLUME].
-  Passo 5: calcola entry (dopo trigger), SL strutturale (da SR Agent), TP1 con R:R ≥ 1:2.
-  REGOLA: ogni prezzo nei setup condizionali deve avere la sua fonte tra parentesi quadre.
-  Se un livello non è stato fornito da nessun agente: scrivi "SR Agent non ha fornito livello preciso — non disponibile".
-- I campi "Entry Proiezione", "Stop Loss Proiezione", "Target Proiezione" appartengono SOLO alla Sezione 2 e non sostituiscono quelli della Sezione 1.
+- Ogni prezzo deve avere la sua fonte tra parentesi quadre.
+- Se un livello non è stato fornito da nessun agente: scrivi '[nessun agente ha fornito questo livello]'.
 - Inizia direttamente con '**Bias Primario**:'.
 """
 
         logger.info(f"[AGNO MACRO] Generazione verdetto finale per {nome_asset} (proiezione al {projection_end_date or 'N/D'})...")
         response = self.verdict_agent.run(query)
         return response.content
-

@@ -43,9 +43,9 @@ QWEN_THINKING_ENABLED = True
 # 0.0 = Determinismo (nessuna casualità, ideale per estrazione dati e selezione tool)
 # 0.7 = Default (bilanciato tra logica e creatività linguistica, ideale per report)
 TEMPERATURE_KNOWLEDGE_SEARCH = 0  # Ricerca nei libri: precisione massima
-TEMPERATURE_MACRO_EXPERT = 0.7  # Analisi Macro: deve saper argomentare
-TEMPERATURE_TECH_ORCHESTRATOR = 0.7  # Orchestrator: gestione team equilibrata
-TEMPERATURE_TECH_SPECIALISTS = 0.7  # Specialisti (Pattern, SR, etc.): analisi tecnica
+TEMPERATURE_MACRO_EXPERT = 0.3  # Analisi Macro: deve saper argomentare
+TEMPERATURE_TECH_ORCHESTRATOR = 0.3  # Orchestrator: gestione team equilibrata
+TEMPERATURE_TECH_SPECIALISTS = 0.2  # Specialisti (Pattern, SR, etc.): analisi tecnica
 TEMPERATURE_SKILL_SELECTOR = 0  # Scelta Strumenti: stabilità e ripetibilità
 
 # --- CONFIGURAZIONE STORAGE LOCALE ---

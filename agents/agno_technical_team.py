@@ -1,10 +1,23 @@
-import os
+"""
+agents/agno_technical_team.py — Team Tecnico V5.
+
+Wrapper che espone i 4 specialisti standalone (PatternAgent, TrendAgent,
+SRAgent, VolumeAgent) in modalità Team Agno per compatibilità con il
+codice che chiama analizza_specialista() o analizza_asset().
+I 4 agenti sono istanziati dai loro file dedicati — nessuna ridefinizione inline.
+"""
+
 import re
-from agno.agent import Agent
 from agno.team import Team
 from agno.db.sqlite import SqliteDb
 from loguru import logger
 import Calibrazione
+
+from agents.specialists.pattern_agent import PatternAgent
+from agents.specialists.trend_agent import TrendAgent
+from agents.specialists.sr_agent import SRAgent
+from agents.specialists.volume_agent import VolumeAgent
+from agents.model_factory import get_model
 
 
 def _rimuovi_intro_inglese(testo: str, marker: str | None = None) -> str:
@@ -28,7 +41,7 @@ def _rimuovi_intro_inglese(testo: str, marker: str | None = None) -> str:
             if marker in riga:
                 return "\n".join(righe[i:]).strip()
 
-    # --- Passo 2: prima riga che inizia con marcatore italiano noto ---
+    # --- Passo 2: prima riga con marcatore italiano noto ---
     MARCATORI = re.compile(
         r"^(🛠️|##|###|####|\*\*Bias|\*\*Strumenti|---)",
         re.UNICODE,
@@ -56,174 +69,170 @@ def _rimuovi_intro_inglese(testo: str, marker: str | None = None) -> str:
 
 
 class AgnoTechnicalTeam:
-    """Team di esperti V5 (Configurable & Free)."""
-    
+    """
+    Team Tecnico V5 — wrapper sui 4 specialisti standalone.
+
+    Non ridefinisce gli agenti inline: istanzia PatternAgent, TrendAgent,
+    SRAgent e VolumeAgent dai loro file dedicati, garantendo che tutte le
+    istruzioni, i campi ## SINTESI OPERATIVA e i sistemi di verdetto
+    siano identici sia in modalità SupervisorAgent che in modalità Team.
+    """
+
     def __init__(self):
-        self.api_key = Calibrazione.GEMINI_API_KEY
-        self.model_desk = Calibrazione.MODEL_TECH_ORCHESTRATOR
-        self.model_specialists = Calibrazione.MODEL_TECH_SPECIALISTS
         self.db_path = Calibrazione.DATABASE_PATH
-        self.skills_dir = Calibrazione.SKILLS_LIBRARY_DIR
-        
-        # 1. Configurazione Storage Locale (Condiviso per il Team)
-        self.storage = None
+
+        # --- 1. Istanzia i 4 specialisti dai file dedicati ---
+        # Le istruzioni, i campi SINTESI OPERATIVA e i sistemi di verdetto
+        # sono definiti nei file specialisti — nessuna ridefinizione qui.
+        self._pattern = PatternAgent() if Calibrazione.AGENT_PATTERN_ENABLED else None
+        self._trend   = TrendAgent()   if Calibrazione.AGENT_TREND_ENABLED   else None
+        self._sr      = SRAgent()      if Calibrazione.AGENT_SR_ENABLED       else None
+        self._volume  = VolumeAgent()  if Calibrazione.AGENT_VOLUME_ENABLED   else None
+
+        # Mappa nome → istanza (usata da analizza_specialista)
+        self._specialist_map: dict = {}
+        if self._pattern: self._specialist_map["Pattern Analyst"] = self._pattern
+        if self._trend:   self._specialist_map["Trend Analyst"]   = self._trend
+        if self._sr:      self._specialist_map["SR Analyst"]       = self._sr
+        if self._volume:  self._specialist_map["Volume Analyst"]   = self._volume
+
+        if not self._specialist_map:
+            logger.warning("[AGNO TEAM] Nessun agente tecnico attivo in Calibrazione.py.")
+
+        # --- 2. Storage condiviso per il Team orchestrator ---
+        storage = None
         if Calibrazione.STORAGE_LOCATION == "local":
-            self.storage = SqliteDb(
+            storage = SqliteDb(
                 session_table="technical_team_session",
-                db_file=self.db_path
+                db_file=self.db_path,
             )
 
-        # 2. Caricamento Sommario Skills (File Search Bridge per l'Orchestratore)
-        all_skills = ""
-        if os.path.exists(self.skills_dir):
-            count = 0
-            for d in sorted(os.listdir(self.skills_dir)):
-                if count >= 3: break  # Limitiamo per token budget
-                subdir = os.path.join(self.skills_dir, d)
-                skill_md = os.path.join(subdir, "SKILL.md")
-                if os.path.isdir(subdir) and os.path.exists(skill_md):
-                    with open(skill_md, "r", encoding="utf-8", errors="ignore") as f_in:
-                        all_skills += f"\n--- {d} ---\n{f_in.read()[:2000]}\n"
-                        count += 1
-        
-        # 3. Definizione Agenti Specialisti
-        from agents.model_factory import get_model
-        
-        # Carichiamo i modelli tramite factory (Qwen/Groq o Gemini)
-        llm_specialists = get_model(self.model_specialists, temperature=Calibrazione.TEMPERATURE_TECH_SPECIALISTS, agent_name="tech_specialists")
-        llm_desk = get_model(self.model_desk, temperature=Calibrazione.TEMPERATURE_TECH_ORCHESTRATOR, agent_name="tech_orchestrator")
-        
-        LINGUA = (
-            "LINGUA OBBLIGATORIA: Italiano. "
-            "Scrivi TUTTO in italiano — analisi, ragionamenti, titoli, note. "
-            "Non usare mai l'inglese, nemmeno per frasi introduttive o note interne. "
-            "Non iniziare mai con 'Okay', 'Let me', 'First' o qualsiasi parola inglese."
-        )
-        STRUTTURA = (
-            "STRUTTURA OBBLIGATORIA: la tua risposta deve iniziare ESATTAMENTE con la riga "
-            "'🛠️ STRUMENTI UTILIZZATI' — nessuna parola o frase prima di essa."
+        # --- 3. Modello orchestratore Team ---
+        llm_desk = get_model(
+            Calibrazione.MODEL_TECH_ORCHESTRATOR,
+            temperature=Calibrazione.TEMPERATURE_TECH_ORCHESTRATOR,
+            agent_name="tech_orchestrator",
         )
 
-        self.pattern_expert = Agent(
-            name="Pattern Analyst",
-            model=llm_specialists,
-            description="Esperto in Candlestick e Chart Patterns.",
-            instructions=[
-                LINGUA,
-                STRUTTURA,
-                "Nella sezione '🛠️ STRUMENTI UTILIZZATI' elenca i pattern specifici cercati (es. Engulfing, Triangoli, Testa e Spalle).",
-                "Analizza i pattern grafici basandoti sulle tue skill caricate dai libri di Bulkowski, Nison e Joe Ross.",
-                "Struttura la risposta in sezioni markdown con titoli in italiano.",
-            ],
-        )
+        # --- 4. Team Agno — usa gli agenti .agent degli specialisti come membri ---
+        active_members = [
+            spec.agent
+            for spec in self._specialist_map.values()
+        ]
 
-        self.trend_expert = Agent(
-            name="Trend Analyst",
-            model=llm_specialists,
-            description="Esperto in Trend e Momentum.",
-            instructions=[
-                LINGUA,
-                STRUTTURA,
-                "Nella sezione '🛠️ STRUMENTI UTILIZZATI' elenca gli indicatori di trend applicati (es. SMA, EMA, Trendline, SuperTrend).",
-                "Analizza il trend e il momentum basandoti sulle tue skill caricate dai libri di Murphy, Larry Williams e Brian Shannon.",
-                "Struttura la risposta in sezioni markdown con titoli in italiano.",
-            ],
-        )
-
-        self.sr_expert = Agent(
-            name="SR Analyst",
-            model=llm_specialists,
-            description="Esperto in Supporti e Resistenze.",
-            instructions=[
-                LINGUA,
-                STRUTTURA,
-                "Nella sezione '🛠️ STRUMENTI UTILIZZATI' elenca i metodi usati (es. Pivot Points, Livelli Psicologici, Aree Supply/Demand).",
-                "Struttura la risposta in sezioni markdown con titoli in italiano.",
-            ],
-        )
-
-        self.volume_expert = Agent(
-            name="Volume Analyst",
-            model=llm_specialists,
-            description="Maestro di VSA e Wyckoff. Analizza lo Sforzo vs Risultato.",
-            instructions=[
-                LINGUA,
-                STRUTTURA,
-                "Nella sezione '🛠️ STRUMENTI UTILIZZATI' elenca i concetti VSA applicati (es. No Demand, Climax, SOS, Wyckoff Phases).",
-                "Esegui un'analisi volumetrica profonda usando VSA (Volume Spread Analysis).",
-                "Cerca segnali di Accumulazione e Distribuzione di Wyckoff.",
-                "Valuta Sforzo vs Risultato: se il volume è alto ma il prezzo non si muove, c'è assorbimento?",
-                "Identifica Climax, No Demand, No Supply e Test dei minimi/massimi.",
-                "Struttura la risposta in sezioni markdown con titoli in italiano.",
-            ],
-        )
-        
-        # 4. Creazione Team Desk (Capo Team)
-        active_members = []
-        if Calibrazione.AGENT_PATTERN_ENABLED: active_members.append(self.pattern_expert)
-        if Calibrazione.AGENT_TREND_ENABLED: active_members.append(self.trend_expert)
-        if Calibrazione.AGENT_SR_ENABLED: active_members.append(self.sr_expert)
-        if Calibrazione.AGENT_VOLUME_ENABLED: active_members.append(self.volume_expert)
-        
-        if not active_members:
-            logger.warning("[AGNO TEAM] Attenzione: Nessun agente tecnico attivo in Calibrazione.py!")
- 
         self.team = Team(
             name="Technical Trading Desk",
             members=active_members,
             model=llm_desk,
-            description="Sei il Capo del Trading Desk. Coordini gli esperti tecnici con focus primario sui VOLUMI.",
+            description=(
+                "Sei il Capo del Technical Trading Desk. "
+                "Coordini i 4 specialisti tecnici (Pattern, Trend, SR, Volume) "
+                "e sintetizzi le loro analisi in un verdetto operativo unificato. "
+                "Il Volume Analyst è il filtro finale: se dichiara RISCHIO ELEVATO, "
+                "il verdetto è NO TRADE indipendentemente dagli altri. "
+                "Se dichiara INCERTO, riduci la confidence ma non bloccare automaticamente."
+            ),
             instructions=[
-                LINGUA,
-                "Ricevi i dati OHLCV e interroga gli specialisti tecnici.",
-                "Usa il Macro Sentiment ricevuto come bussola direzionale.",
-                "L'Analisi Volumetrica del 'Volume Analyst' è il filtro finale: se i volumi non confermano il trend, segnalalo come RISCHIO ELEVATO.",
-                "Fornisci il verdetto finale con Ingresso, Stop e Target, giustificandolo con la convalida volumetrica.",
+                "LINGUA OBBLIGATORIA: Italiano. Scrivi TUTTO in italiano. "
+                "Non usare mai l'inglese, nemmeno per frasi introduttive.",
+
+                "Ricevi i dati OHLCV e il Macro Sentiment, poi interroga gli specialisti.",
+
+                "Usa il Macro Sentiment come bussola direzionale, non come veto assoluto: "
+                "se 3+ specialisti tecnici convergono in direzione opposta al macro, "
+                "dichiara 'CONTRADDIZIONE MACRO-TECNICA' e riduci la confidence.",
+
+                "GERARCHIA VETO VOLUME: "
+                "se il Volume Analyst dichiara esplicitamente 'RISCHIO ELEVATO' o 'VETO OPERATIVO' "
+                "→ verdetto NO TRADE obbligatorio. "
+                "Se dichiara 'INCERTO' o 'NEUTRO' → riduci confidence, trade ancora possibile.",
+
+                "Il verdetto finale deve includere sempre: "
+                "Bias (Bullish/Bearish/NO TRADE), Entry, Stop Loss, Target 1, Target 2 "
+                "con prezzi numerici reali e fonte tra parentesi quadre. "
+                "Se un livello non è disponibile scrivi '[nessun agente ha fornito questo livello]'.",
+
                 "Struttura la risposta in sezioni markdown con titoli in italiano.",
             ],
-            db=self.storage,
+            db=storage,
             num_history_messages=3,
             markdown=True,
         )
-        logger.success(f"[AGNO] Team Tecnico pronto con modelli: {llm_desk.id}/{llm_specialists.id}")
+        logger.success(
+            f"[AGNO TEAM] Team Tecnico pronto — "
+            f"specialisti attivi: {list(self._specialist_map.keys())} | "
+            f"orchestrator: {llm_desk.id}"
+        )
 
-    def analizza_specialista(self, nome_specialista, data_summary, macro_sentiment="Neutrale"):
-        """Esegue l'analisi di un singolo esperto (Modalità Sequenziale per risparmio quota)."""
+    def analizza_specialista(
+        self,
+        nome_specialista: str,
+        data_summary: str,
+        macro_sentiment: str = "Neutrale",
+        skills_guidance: str = "",
+        other_analyses: dict = None,
+    ) -> str:
+        """
+        Esegue l'analisi di un singolo specialista standalone.
+        Usa il metodo analizza() del file dedicato — stesso comportamento
+        del SupervisorAgent sequenziale.
+
+        Args:
+            nome_specialista: "Pattern Analyst" / "Trend Analyst" / "SR Analyst" / "Volume Analyst"
+            data_summary:     Dati OHLCV multi-timeframe.
+            macro_sentiment:  Sentiment macro dell'AgnoMacroExpert.
+            skills_guidance:  Tecniche OBBLIGATORIE dalla FOCUS SKILLS.
+            other_analyses:   Dict {nome: testo} degli altri specialisti (solo per Volume Analyst).
+
+        Returns:
+            Stringa Markdown con l'analisi completa.
+        """
         logger.info(f"[AGNO TEAM] Interrogazione specialistica: {nome_specialista}")
-        
-        # Cerchiamo l'agente corretto nel team
-        agente = next((m for m in self.team.members if m.name == nome_specialista), None)
-        if not agente:
-            return f"Errore: Specialista {nome_specialista} non trovato."
+
+        spec = self._specialist_map.get(nome_specialista)
+        if not spec:
+            logger.error(f"[AGNO TEAM] Specialista '{nome_specialista}' non trovato o disattivato.")
+            raise ValueError(
+                f"❌ ERRORE [AgnoTechnicalTeam]: specialista '{nome_specialista}' "
+                f"non trovato o disattivato in Calibrazione.py."
+            )
+
+        if nome_specialista == "Volume Analyst":
+            return spec.analizza(
+                data_summary,
+                macro_sentiment,
+                skills_guidance=skills_guidance,
+                other_analyses=other_analyses or {},
+            )
+        return spec.analizza(
+            data_summary,
+            macro_sentiment,
+            skills_guidance=skills_guidance,
+        )
+
+    def analizza_asset(self, data_summary: str, macro_sentiment: str = "Neutrale") -> str:
+        """
+        Esegue l'analisi coordinata del team completo (modalità Team Agno).
+        Mantenuto per compatibilità con il codice che chiama questo metodo direttamente.
+        """
+        logger.info(f"[AGNO TEAM] Avvio analisi team con Macro Sentiment: {macro_sentiment[:80]}...")
 
         query = f"""
-        DATI MERCATO:
-        {data_summary}
+DATI MERCATO ATTUALI (OHLCV Multi-Timeframe):
+{data_summary}
 
-        SENTIMENT MACRO DA RISPETTARE:
-        {macro_sentiment}
+SENTIMENT MACRO (bussola direzionale — fornito dall'AgnoMacroExpert):
+{macro_sentiment}
 
-        Esegui la tua analisi tecnica specifica come {nome_specialista}.
-        IMPORTANTE: Rispondi ESCLUSIVAMENTE in italiano. Non usare parole inglesi. Non iniziare con 'Okay' o frasi introduttive in inglese.
-        Inizia direttamente con la sezione '🛠️ STRUMENTI UTILIZZATI'.
-        """
-        
-        response = agente.run(query)
-        return _rimuovi_intro_inglese(response.content, marker="🛠️ STRUMENTI UTILIZZATI")
-
-    def analizza_asset(self, data_summary, macro_sentiment="Neutrale"):
-        # Metodo originale mantenuto per compatibilità
-        logger.info(f"[AGNO TEAM] Avvio analisi con Sentiment Macro: {macro_sentiment}")
-        
-        query = f"""
-        DATI MERCATO ATTUALI:
-        {data_summary}
-        
-        DIREZIONE MACRO (MOLTO IMPORTANTE):
-        {macro_sentiment}
-        
-        Esegui l'analisi coordinata e fornisci il verdetto unificato.
-        """
-        
-        response = self.team.run(query)
-        return response.content
+Interroga tutti gli specialisti e fornisci il verdetto unificato.
+Ordine obbligatorio: Pattern Analyst → Trend Analyst → SR Analyst → Volume Analyst → Verdetto.
+"""
+        try:
+            response = self.team.run(query)
+            if not response.content:
+                logger.error("[AGNO TEAM] Risposta vuota dal team orchestrator.")
+                return "❌ ERRORE [AgnoTechnicalTeam]: risposta vuota dal team orchestrator."
+            return response.content
+        except Exception as e:
+            logger.error(f"[AGNO TEAM] Errore durante l'analisi team: {e}")
+            raise

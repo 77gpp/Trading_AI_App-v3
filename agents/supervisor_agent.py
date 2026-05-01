@@ -1,3 +1,7 @@
+"""
+agents/supervisor_agent.py — Controller Multi-Agente V5 (Ibrido: Gemini + Qwen).
+"""
+
 import os
 import re
 import sys
@@ -29,14 +33,7 @@ def _smart_sleep(error_message: str, fallback: int = 30) -> None:
     """
     Legge il tempo di attesa reale dal messaggio di errore Groq (rate limit)
     e aspetta esattamente il necessario + 2s di margine.
-
-    Groq restituisce messaggi del tipo:
-      "Please try again in 27.345s"
-      "Please try again in 1m30s"
-
-    Se il tempo non è estraibile, usa il valore fallback (default 30s).
     """
-    # Pattern "in 27.345s"
     match_s = re.search(r"try again in ([\d.]+)s", error_message)
     if match_s:
         wait = float(match_s.group(1)) + 2
@@ -44,7 +41,6 @@ def _smart_sleep(error_message: str, fallback: int = 30) -> None:
         time.sleep(wait)
         return
 
-    # Pattern "in 1m30s" o "in 2m5.5s"
     match_ms = re.search(r"try again in (\d+)m([\d.]+)s", error_message)
     if match_ms:
         wait = int(match_ms.group(1)) * 60 + float(match_ms.group(2)) + 2
@@ -52,7 +48,6 @@ def _smart_sleep(error_message: str, fallback: int = 30) -> None:
         time.sleep(wait)
         return
 
-    # Fallback
     logger.info(f"[RATE LIMIT] Tempo non estraibile — attesa fallback: {fallback}s")
     time.sleep(fallback)
 
@@ -60,13 +55,11 @@ def _smart_sleep(error_message: str, fallback: int = 30) -> None:
 def _call_with_retry(fn, *args, max_retries: int = 3, fallback: int = 30, **kwargs):
     """
     Esegue fn(*args, **kwargs) con retry automatico in caso di rate limit Groq.
-    Se Groq risponde con 429/rate-limit, legge il tempo reale da _smart_sleep
-    e riprova. Dopo max_retries tentativi falliti rilancia l'eccezione.
+    Dopo max_retries tentativi falliti rilancia l'eccezione.
     """
     for attempt in range(1, max_retries + 1):
         try:
-            result = fn(*args, **kwargs)
-            return result
+            return fn(*args, **kwargs)
         except Exception as e:
             err_str = str(e).lower()
             is_rate_limit = (
@@ -83,11 +76,33 @@ def _call_with_retry(fn, *args, max_retries: int = 3, fallback: int = 30, **kwar
                 raise
 
 
+def _log_specialist_output(nome: str, testo: str) -> None:
+    """
+    Diagnostica post-analisi per ogni specialista:
+    verifica presenza ## SINTESI OPERATIVA e logga tail per debug.
+    """
+    if not isinstance(testo, str) or not testo:
+        logger.error(f"[SUPERVISORE] {nome}: output vuoto o non stringa.")
+        return
+    has_sintesi = "## SINTESI OPERATIVA" in testo.upper()
+    if has_sintesi:
+        logger.debug(
+            f"[SUPERVISORE] {nome} — ✅ SINTESI OPERATIVA trovata | "
+            f"Lunghezza output: {len(testo)} chars"
+        )
+    else:
+        logger.error(
+            f"[SUPERVISORE] {nome} — ❌ SINTESI OPERATIVA NON TROVATA | "
+            f"Lunghezza output: {len(testo)} chars | "
+            f"Tail:\n{testo[-400:]}"
+        )
+
+
 class SupervisorAgent:
     """
     Controller Multi-Agente V5 (Ibrido: Gemini + Qwen).
     Gestisce il flusso tra:
-    - Analisi Macro (Qwen) — guida strategica per tutto il team
+    - Analisi Macro (Gemini) — guida strategica per tutto il team
     - Selezione Skill (Llama) — sceglie quali tecniche dai libri applicare
     - Ricerca Libri/Knowledge (Gemini Agentic Search)
     - 4 Specialisti Tecnici Standalone (Qwen) — ognuno con le proprie Skill
@@ -100,7 +115,7 @@ class SupervisorAgent:
         self.db_path = Calibrazione.DATABASE_PATH
 
         # Agenti di alto livello
-        self.macro_expert   = AgnoMacroExpert()
+        self.macro_expert     = AgnoMacroExpert()
         self.knowledge_expert = ContextExpanderAgent()
 
         # 4 Specialisti Tecnici Standalone (con Skill dai libri)
@@ -111,7 +126,17 @@ class SupervisorAgent:
 
         logger.success("[AGNO SUPERVISOR] Sistema V5 IBRIDO pronto (Gemini + Qwen).")
 
-    def analizza_asset(self, data_dict, nome_asset, start_date=None, end_date=None, context_extra="", projection_end_date=None, volume_profile=None, last_price=None):
+    def analizza_asset(
+        self,
+        data_dict,
+        nome_asset,
+        start_date=None,
+        end_date=None,
+        context_extra="",
+        projection_end_date=None,
+        volume_profile=None,
+        last_price=None,
+    ):
         """
         Master Flow V5 (Modalità Sequenziale Salva-Quota).
         Restituisce una tupla (report_markdown, chosen_tools).
@@ -123,7 +148,12 @@ class SupervisorAgent:
           3. 4 Specialisti tecnici standalone → analisi con Skill e guidance
           4. Verdetto Finale → sintesi operativa
         """
-        logger.info(f"\n{'='*60}\nAVVIO ANALISI SEQUENZIALE su {nome_asset}\nPeriodo: {start_date} -> {end_date}\n{'='*60}")
+        logger.info(
+            f"\n{'='*60}\n"
+            f"AVVIO ANALISI SEQUENZIALE su {nome_asset}\n"
+            f"Periodo: {start_date} -> {end_date}\n"
+            f"{'='*60}"
+        )
 
         # ── Step 1: Analisi Macro ─────────────────────────────────────
         if Calibrazione.AGENT_MACRO_ENABLED:
@@ -137,6 +167,10 @@ class SupervisorAgent:
                 last_price=last_price,
             )
             logger.success("Sentiment Macro ottenuto.")
+            logger.debug(
+                f"[SUPERVISORE] Macro sentiment tail:\n"
+                f"{macro_sentiment[-600:] if isinstance(macro_sentiment, str) else macro_sentiment}"
+            )
         else:
             logger.info("[SUPERVISORE] Analisi Macro disattivata. Salto lo Step 1.")
             macro_sentiment = "ANALISI MACRO DISATTIVATA — bias direzionale non disponibile."
@@ -147,7 +181,8 @@ class SupervisorAgent:
         chosen_tools = skill_selector.select_tools(nome_asset, macro_sentiment, data_dict)
         if not chosen_tools.get("success", True):
             raise RuntimeError(
-                f"[SUPERVISORE] Selezione strumenti AI fallita: {chosen_tools.get('error', 'Unknown error')}. "
+                f"[SUPERVISORE] Selezione strumenti AI fallita: "
+                f"{chosen_tools.get('error', 'Unknown error')}. "
                 "Verifica la risposta del modello SkillSelector nei log."
             )
         logger.success("[SUPERVISORE] Strumenti selezionati con successo.")
@@ -156,16 +191,12 @@ class SupervisorAgent:
         logger.info(f"[SUPERVISORE] Interrogazione Biblioteca Gemini per {nome_asset}...")
         query_knowledge = (
             f"Quali sono le migliori strategie di trading e i pattern più affidabili "
-            f"descritti nei libri per l'asset {nome_asset} in un mercato con sentiment {macro_sentiment}?"
+            f"descritti nei libri per l'asset {nome_asset} "
+            f"in un mercato con sentiment {macro_sentiment}?"
         )
         knowledge_context = self.knowledge_expert.search_knowledge(query_knowledge)
 
         # ── Preparazione contesto dati (1H + 4H + 1D) ───────────────
-        # Calcola indicatori pre-calcolati e costruisce un contesto differenziato
-        # per ciascun agente: Pattern riceve solo OHLCV+swing, Trend riceve anche
-        # medie mobili e oscillatori, SR riceve Bollinger/ATR/POC, Volume riceve
-        # oscillatori e metriche OBV/POC. Questo mantiene l'indipendenza di giudizio.
-
         logger.info("[SUPERVISORE] Calcolo indicatori tecnici pre-calcolati...")
         indicators_dict = indicators_engine.compute(data_dict)
 
@@ -186,7 +217,6 @@ class SupervisorAgent:
             "volume":  ctx_builder.build("volume"),
         }
 
-        # context_extra (legacy) appendito a tutti i contesti se presente
         if context_extra:
             for k in ctx_per_agent:
                 ctx_per_agent[k] += f"\n\n{context_extra}"
@@ -207,12 +237,14 @@ class SupervisorAgent:
         for nome, attivo, agente, guidance_key in specialist_config:
             if not attivo:
                 results_tech[nome] = "Analisi Disattivata"
+                logger.info(f"[SUPERVISORE] {nome}: disattivato in Calibrazione.")
                 continue
 
-            guidance = skills_guidance.get(guidance_key, "")
+            guidance  = skills_guidance.get(guidance_key, "")
+            agent_ctx = ctx_per_agent[guidance_key]
             logger.info(f"Interrogazione {nome}...")
+
             try:
-                agent_ctx = ctx_per_agent[guidance_key]
                 if nome == "Volume Analyst":
                     altri_risultati = {
                         k: v for k, v in results_tech.items()
@@ -220,41 +252,38 @@ class SupervisorAgent:
                     }
                     results_tech[nome] = _call_with_retry(
                         agente.analizza,
-                        agent_ctx, macro_sentiment,
+                        agent_ctx,
+                        macro_sentiment,
                         skills_guidance=guidance,
-                        other_analyses=altri_risultati
+                        other_analyses=altri_risultati,
                     )
                 else:
                     results_tech[nome] = _call_with_retry(
                         agente.analizza,
-                        agent_ctx, macro_sentiment,
-                        skills_guidance=guidance
+                        agent_ctx,
+                        macro_sentiment,
+                        skills_guidance=guidance,
                     )
                 logger.success(f"Risposta {nome} ricevuta.")
+
             except Exception as e:
                 logger.error(f"[SUPERVISORE] Errore {nome}: {e}")
-                results_tech[nome] = f"❌ Errore durante l'analisi: {e}"
+                results_tech[nome] = f"❌ ERRORE [{nome}]: {e}"
 
-        # ── Classificazione tecniche applicate vs. consultate ──────────────────
-        # Tre livelli di rilevamento per massimizzare gli strumenti visibili:
-        #   L1 (garanzia) — strumenti AI-selezionati (chosen_tools[domain])
-        #                   Sempre presenti: il SkillSelector li ha già validati.
-        #   L2 (keyword)  — TECHNIQUE_OVERLAY_MAP scansiona l'output dell'agente
-        #                   Aggiunge strumenti menzionati nel testo ma non in L1.
-        #   L3 (badge)    — nomi SKILL.md senza overlay_id rilevati nel testo
-        #                   Resi come badge informativi (non attivabili sul grafico).
+            # ── Diagnostica struttura output ──────────────────────────
+            _log_specialist_output(nome, results_tech[nome])
+
+        # ── Classificazione tecniche applicate vs. consultate ────────
         _domain_to_specialist = {
             "pattern": "Pattern Analyst",
             "trend":   "Trend Analyst",
             "sr":      "SR Analyst",
             "volume":  "Volume Analyst",
         }
-        # Overlay IDs validi per dominio — usati in L2 per non mischiare strumenti
         _domain_valid_ids: dict[str, set] = {
             d: {t["id"] for t in tools}
             for d, tools in AVAILABLE_TOOLS.items()
         }
-        # Il Volume Analyst usa gli strumenti dell'oscillator + volume_vsa
         _domain_valid_ids["volume"] = (
             _domain_valid_ids.get("oscillator", set()) | {"volume_vsa"}
         )
@@ -262,7 +291,6 @@ class SupervisorAgent:
         _techniques_pd = chosen_tools.get("techniques_per_domain", {})
         applied_per_domain: dict = {}
 
-        # Parole generiche da non usare come unico termine di ricerca in L3
         _generic_skip = {
             "trend", "volume", "pattern", "price", "market", "trading",
             "candle", "candela", "chart", "grafico", "analisi", "scale",
@@ -274,8 +302,7 @@ class SupervisorAgent:
             _applied: list[dict] = []
             _seen_ids: set       = set()
 
-            # ── L1: Strumenti AI-selezionati ──────────────────────────────────
-            # Per il Volume Analyst usiamo la selezione "oscillator" del SkillSelector
+            # ── L1: Strumenti AI-selezionati ──────────────────────────
             _llm_key = "oscillator" if _domain == "volume" else _domain
             for _tool in chosen_tools.get(_llm_key, []):
                 _oid  = _tool.get("id")
@@ -288,10 +315,7 @@ class SupervisorAgent:
                 _text_lower = _text.lower()
                 _valid_ids  = _domain_valid_ids.get(_domain, set())
 
-                # ── L1.5: Scan sezione strutturata '🛠️ STRUMENTI UTILIZZATI' ──
-                # L'agente produce ora righe ✅/❌ con nomi esatti delle tecniche.
-                # Estrae le tecniche RILEVATE (✅) e le mappa via TECHNIQUE_OVERLAY_MAP
-                # prima del keyword scan generico L2, per massima precisione sui nomi.
+                # ── L1.5: Scan sezione '🛠️ STRUMENTI UTILIZZATI' ─────
                 _sect_match = re.search(
                     r'STRUMENTI UTILIZZATI[^\n]*\n([\s\S]*?)(?=\n##\s|\Z)',
                     _text
@@ -315,8 +339,7 @@ class SupervisorAgent:
                                 _applied.append({"name": _tech_name, "overlay_id": _oid})
                                 break
 
-                # ── L2: Keyword scan TECHNIQUE_OVERLAY_MAP ────────────────────
-                # Rileva strumenti del dominio menzionati nel testo ma non già in L1/L1.5
+                # ── L2: Keyword scan TECHNIQUE_OVERLAY_MAP ────────────
                 for _kw, _oid in TECHNIQUE_OVERLAY_MAP:
                     if _oid in _seen_ids or _oid not in _valid_ids:
                         continue
@@ -324,16 +347,15 @@ class SupervisorAgent:
                         _seen_ids.add(_oid)
                         _applied.append({"name": _kw.title(), "overlay_id": _oid})
 
-                # ── L3: Nomi SKILL.md → badge concettuali (solo senza overlay) ─
+                # ── L3: Nomi SKILL.md → badge concettuali ─────────────
                 for _book_techs in _techniques_pd.get(_domain, {}).values():
                     for _tech in _book_techs:
                         _tname   = _tech["name"] if isinstance(_tech, dict) else str(_tech)
                         _overlay = _tech.get("overlay_id") if isinstance(_tech, dict) else None
                         if _overlay:
-                            continue  # Già gestito in L1/L2
+                            continue
                         _clean = re.sub(r'\s*\([^)]*\)', '', _tname.lower()).strip()
                         _ms    = _clean if len(_clean.split()) >= 2 else _tname.lower()
-                        # Salta termini troppo generici (1 sola parola comune)
                         if len(_ms.split()) == 1 and _ms in _generic_skip:
                             continue
                         if re.search(r'\b' + re.escape(_ms) + r'\b', _text_lower):
@@ -343,22 +365,40 @@ class SupervisorAgent:
 
         chosen_tools["applied_techniques_per_domain"] = applied_per_domain
         logger.info(
-            f"[SUPERVISORE] Tecniche applicate — "
+            "[SUPERVISORE] Tecniche applicate — "
             + ", ".join(f"{d}: {len(applied_per_domain[d])}" for d in _domain_to_specialist)
         )
 
-        # ── Step 4: Verdetto Finale (Macro Expert + Skill Synthesizer) ───
+        # ── Step 4: Verdetto Finale ───────────────────────────────────
         logger.info("Generazione verdetto finale (MacroExpert + trading-verdict-synthesizer)...")
+
+        # Diagnostica pre-verdetto: verifica che tutti gli specialisti
+        # abbiano prodotto ## SINTESI OPERATIVA prima di passare al verdict agent.
+        mancanti = [
+            nome for nome, testo in results_tech.items()
+            if isinstance(testo, str)
+            and testo not in ("Analisi Disattivata", "N/D")
+            and "## SINTESI OPERATIVA" not in testo.upper()
+            and not testo.startswith("❌")
+        ]
+        if mancanti:
+            logger.warning(
+                f"[SUPERVISORE] Specialisti senza ## SINTESI OPERATIVA: {mancanti}. "
+                f"Il verdict agent riceverà messaggi di errore espliciti per questi agenti."
+            )
+
         verdetto_finale = _call_with_retry(
             self.macro_expert.sintetizza_verdetto,
-            nome_asset, macro_sentiment, results_tech,
-            projection_end_date=projection_end_date
+            nome_asset,
+            macro_sentiment,
+            results_tech,
+            projection_end_date=projection_end_date,
         )
         logger.success("Verdetto finale generato.")
 
         # ── Assemblaggio Report Finale ────────────────────────────────
         if chosen_tools.get("success"):
-            skills_list = ", ".join(chosen_tools.get("raw_skills_used", [])) or "Skills Library"
+            skills_list  = ", ".join(chosen_tools.get("raw_skills_used", [])) or "Skills Library"
             tools_section = f"**Fonti di conoscenza applicate:** {skills_list}\n\n{chosen_tools['summary']}"
         else:
             tools_section = (

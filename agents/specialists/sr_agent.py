@@ -29,7 +29,11 @@ class SRAgent:
         logger.info("[SR AGENT] Inizializzazione...")
 
         # --- 1. Modello AI ---
-        llm = get_model(Calibrazione.MODEL_TECH_SPECIALISTS, temperature=Calibrazione.TEMPERATURE_TECH_SPECIALISTS, agent_name="tech_specialists")
+        llm = get_model(
+            Calibrazione.MODEL_TECH_SPECIALISTS,
+            temperature=Calibrazione.TEMPERATURE_TECH_SPECIALISTS,
+            agent_name="tech_specialists"
+        )
 
         # --- 2. Storage locale opzionale ---
         storage = None
@@ -40,7 +44,10 @@ class SRAgent:
             )
 
         # --- 3. Caricamento Skills Agno dai 6 libri tecnici ---
-        skills = Skills(loaders=[LocalSkills(os.path.abspath(d), validate=False) for d in Calibrazione.TECHNICAL_SKILLS_DIRS])
+        skills = Skills(loaders=[
+            LocalSkills(os.path.abspath(d), validate=False)
+            for d in Calibrazione.TECHNICAL_SKILLS_DIRS
+        ])
 
         # --- 4. Creazione Agente Agno ---
         self.agent = Agent(
@@ -62,23 +69,49 @@ class SRAgent:
                 "Il tuo focus è esclusivamente la MAPPA DEI LIVELLI DI PREZZO."
             ),
             instructions=[
-                "Inizia SEMPRE la tua risposta con la sezione '## SINTESI OPERATIVA' (vedi campi obbligatori). "
-                "Scrivi la SINTESI OPERATIVA IMMEDIATAMENTE come prima sezione — prima di qualsiasi analisi dettagliata. "
-                "Dopo la SINTESI OPERATIVA, scrivi la sezione '## 🛠️ STRUMENTI UTILIZZATI'. "
-                "Per OGNI tecnica della FOCUS SKILLS valutata, produci UNA RIGA usando ESATTAMENTE uno di questi 3 stati: "
-                "'✅ NomeTecnica — [nota operativa breve]' → tecnica rilevata e applicata ai dati correnti; "
-                "'🔍 NomeTecnica — non rilevato' → tecnica applicabile MA nessun livello/zona significativo identificabile nei dati correnti (monitorare per sviluppi futuri); "
-                "'⛔ NomeTecnica — non applicabile' → tecnica non pertinente a questo asset o timeframe (es. Donchian Channel su asset con storico insufficiente, Pivot Points settimanali su asset intraday senza continuità, ecc.). "
-                "La distinzione tra 🔍 e ⛔ è critica per la qualità del confluence score: "
-                "🔍 = livello potenziale da monitorare, ⛔ = non contribuisce al punteggio di confluenza. "
-                "Elenca TUTTE le tecniche principali di ogni libro della FOCUS SKILLS. "
-                "Poi prosegui con l'analisi dettagliata.",
+                # ── ORDINE RISPOSTA ─────────────────────────────────────────
+                "STRUTTURA RISPOSTA OBBLIGATORIA — rispetta quest'ordine esatto senza eccezioni: "
+                "1. ## SINTESI OPERATIVA (PRIMA di tutto il resto — vedi campi obbligatori sotto) "
+                "2. ## 🛠️ STRUMENTI UTILIZZATI "
+                "3. Mappatura livelli per timeframe (tabelle Markdown) con punteggio confluenza 1-5 e origine. "
+                "Non scrivere nulla prima della ## SINTESI OPERATIVA.",
 
+                # ── SINTESI OPERATIVA ────────────────────────────────────────
+                "## SINTESI OPERATIVA — CAMPI OBBLIGATORI (scrivi questa sezione per prima, "
+                "con esattamente questi campi nell'ordine indicato, nessuno omesso): "
+                "- **Bias**: Bullish / Bearish / Neutrale "
+                "- **Struttura**: HH+HL / LH+LL / Laterale / Transizione "
+                "- **Segnale Chiave**: [tecnica principale — libro — timeframe] "
+                "- **Zona Critica Superiore (Resistenza/Supply)**: [range di prezzo] — confluenza X/5 — origine "
+                "- **Zona Critica Inferiore (Supporto/Demand)**: [range di prezzo] — confluenza X/5 — origine "
+                "- **Livello Entry**: [prezzo numerico oppure 'non disponibile'] "
+                "- **Livello Stop Loss**: [prezzo numerico oppure 'non disponibile'] "
+                "- **Livello Target 1**: [prezzo numerico oppure 'non disponibile'] "
+                "- **Livello Target 2**: [prezzo numerico oppure 'non disponibile'] "
+                "- **Qualità Segnale**: Alta / Media / Bassa "
+                "- **Stato Volume**: Confermato / Incerto / Debole / Non applicabile "
+                "- **Livello più Critico del Momento**: [prezzo o range] — motivazione in 1 frase "
+                "- **Motivo Finale**: [2 frasi massimo, concrete e operative] "
+                "NON omettere nessun campo. NON cambiare il titolo della sezione. "
+                "NON scrivere altro prima di questa sezione.",
+
+                # ── STRUMENTI UTILIZZATI ─────────────────────────────────────
+                "## 🛠️ STRUMENTI UTILIZZATI — dopo la SINTESI OPERATIVA, "
+                "per OGNI tecnica della FOCUS SKILLS valutata produci UNA RIGA con ESATTAMENTE uno di questi 3 stati: "
+                "'✅ NomeTecnica — [nota operativa breve]' → tecnica rilevata e applicata; "
+                "'🔍 NomeTecnica — non rilevato' → tecnica applicabile MA nessun livello significativo identificabile nei dati correnti (monitorare); "
+                "'⛔ NomeTecnica — non applicabile' → tecnica non pertinente a questo asset o timeframe. "
+                "La distinzione tra 🔍 e ⛔ è critica per il confluence score: "
+                "🔍 = livello potenziale da monitorare, ⛔ = non contribuisce al punteggio di confluenza. "
+                "Elenca TUTTE le tecniche principali di ogni libro della FOCUS SKILLS.",
+
+                # ── FOCUS SKILLS ─────────────────────────────────────────────
                 "VINCOLO FONDAMENTALE: se la sezione 'FOCUS SKILLS' è presente nel prompt, "
                 "devi analizzare TUTTE le tecniche elencate in essa (sono obbligatorie, non opzionali). "
                 "Dopo averle analizzate tutte, puoi integrare con altri metodi di identificazione S/R "
                 "presenti nelle Skill caricate (Murphy, Bulkowski, Williams) che ritieni utili.",
 
+                # ── VALORE AGGIUNTO ──────────────────────────────────────────
                 "PRIORITÀ DEL TUO VALORE AGGIUNTO: i livelli Fibonacci, Pivot Points e swing "
                 "highs/lows sono già precalcolati nel contesto che ricevi. "
                 "NON limitarti a rielencarli — usali come VALIDATORI. "
@@ -89,9 +122,10 @@ class SRAgent:
                 "ultima candela bullish prima di un impulso ribassista (bearish OB); "
                 "(3) Fair Value Gaps / Imbalance Zones: zone di prezzo non coperte da candele sovrapposte; "
                 "(4) Zone con test multipli (3+ tocchi): ogni test aggiuntivo aumenta la rilevanza. "
-                "Usa Fibonacci e Pivot per AUMENTARE il punteggio di confluenza delle zone che identifichi "
+                "Usa Fibonacci e Pivot per AUMENTARE il punteggio di confluenza delle zone identificate "
                 "dai dati OHLCV grezzi.",
 
+                # ── USO SKILL (5 LAYER) ──────────────────────────────────────
                 "USO COMPLETO DELLE SKILL (5 layer): per ogni tecnica applicata: "
                 "(L1) spiega perché questo livello/zona è strutturalmente significativo; "
                 "(L2) verifica i criteri di identificazione precisi dalla Skill; "
@@ -102,11 +136,13 @@ class SRAgent:
                 "(L5) applica il ragionamento dell'analista: cosa succede se il prezzo arriva a questo livello? "
                 "Quale comportamento ti aspetti (rimbalzo, rottura, fake-out)? Perché?",
 
+                # ── ANALISI DATI ─────────────────────────────────────────────
                 "Analizza i livelli su TUTTI i timeframe: inizia dai livelli di lungo "
                 "termine (mensili/settimanali) e scendi fino ai livelli intraday.",
 
                 "Per ogni livello/zona indica: origine (tecnica + libro), numero di test, "
                 "punteggio di confluenza (1-5 punti: +1 per ogni tecnica indipendente che lo valida).",
+
                 "Identifica le ZONE DI CONFLUENZA (punteggio ≥ 3): massima probabilità di reazione.",
 
                 "ATTENZIONE ALLE ANOMALIE (L4): se un livello è stato testato molte volte "
@@ -118,14 +154,7 @@ class SRAgent:
 
                 "Fornisci la struttura S/R in formato tabellare (Markdown) per massima leggibilità.",
 
-                "PRIMA SEZIONE OBBLIGATORIA — '## SINTESI OPERATIVA' con esattamente questi campi (scrivila PRIMA di STRUMENTI UTILIZZATI e dell'analisi dettagliata): "
-                "- **Zona Critica Superiore (Resistenza/Supply)**: [range di prezzo] — confluenza X/5 — origine "
-                "- **Zona Critica Inferiore (Supporto/Demand)**: [range di prezzo] — confluenza X/5 — origine "
-                "- **Supporto Immediato**: [prezzo esatto] "
-                "- **Resistenza Immediata**: [prezzo esatto] "
-                "- **Livello più Critico del Momento**: [prezzo o range] — MOTIVAZIONE in 1 frase "
-                "- **Bias Strutturale per il Macro Agent**: breve giudizio operativo (1-2 frasi)",
-
+                # ── LINGUA ───────────────────────────────────────────────────
                 "Rispondi in italiano in modo professionale e strutturato.",
             ],
             skills=skills,
@@ -133,7 +162,10 @@ class SRAgent:
             num_history_messages=3,
             markdown=True,
         )
-        logger.success(f"[SR AGENT] Pronto con modello: {llm.id} | Skills: {len(Calibrazione.TECHNICAL_SKILLS_DIRS)} libri caricati")
+        logger.success(
+            f"[SR AGENT] Pronto con modello: {llm.id} | "
+            f"Skills: {len(Calibrazione.TECHNICAL_SKILLS_DIRS)} libri caricati"
+        )
 
     def analizza(self, data_summary: str, macro_sentiment: str = "Neutrale", skills_guidance: str = "") -> str:
         """
@@ -149,7 +181,10 @@ class SRAgent:
         """
         logger.info("[SR AGENT] Avvio analisi supporti e resistenze...")
 
-        focus_section = f"\nFOCUS SKILLS (tecniche OBBLIGATORIE — analizzale TUTTE, poi integra con altre Skill):\n{skills_guidance}\n" if skills_guidance else ""
+        focus_section = (
+            f"\nFOCUS SKILLS (tecniche OBBLIGATORIE — analizzale TUTTE, poi integra con altre Skill):\n"
+            f"{skills_guidance}\n"
+        ) if skills_guidance else ""
 
         prompt = f"""
 DATI MERCATO (OHLCV Multi-Timeframe):
@@ -162,14 +197,19 @@ Esegui la mappatura completa dei livelli di prezzo chiave.
 Priorità: identifica Supply & Demand Zones istituzionali, Order Blocks e Fair Value Gaps dai dati OHLCV grezzi.
 Usa Fibonacci, Pivot Points e swing (già nel contesto precalcolato) per VALIDARE e aumentare il punteggio di confluenza.
 
-STRUTTURA RISPOSTA OBBLIGATORIA (rispetta quest'ordine esatto):
-1. ## SINTESI OPERATIVA — sezione strutturata con i campi obbligatori (PRIMA di tutto)
-2. ## 🛠️ STRUMENTI UTILIZZATI — 3 stati: ✅ rilevato / 🔍 non rilevato (monitorare) / ⛔ non applicabile
+ORDINE RISPOSTA OBBLIGATORIO (nessuna eccezione):
+1. ## SINTESI OPERATIVA — tutti i campi obbligatori, PRIMA di qualsiasi altra sezione
+2. ## 🛠️ STRUMENTI UTILIZZATI — stati ✅ / 🔍 / ⛔ per ogni tecnica della FOCUS SKILLS
 3. Mappatura livelli per timeframe (tabelle Markdown) con punteggio confluenza 1-5 e origine
+
+Non scrivere nulla prima della ## SINTESI OPERATIVA.
 """
         try:
             response = self.agent.run(prompt)
-            return response.content if response.content else "Errore: risposta vuota dall'agente."
+            if not response.content:
+                logger.error("[SR AGENT] Risposta vuota dall'agente.")
+                return "❌ ERRORE [SR Agent]: risposta vuota dal modello."
+            return response.content
         except Exception as e:
             logger.error(f"[SR AGENT] Errore durante l'analisi: {e}")
-            return f"❌ Errore nell'analisi dei supporti e resistenze: {e}"
+            raise
