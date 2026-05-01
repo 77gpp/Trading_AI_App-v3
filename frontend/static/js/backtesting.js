@@ -1828,9 +1828,40 @@ const AnalysisHistory = (() => {
     }
   }
 
+  async function deleteAll() {
+    // Carica tutte le analisi
+    try {
+      const res = await fetch('/api/performance/all');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      const allIds = (data.items || []).map(i => i.id);
+
+      if (!allIds.length) {
+        showToast('Nessuna analisi da eliminare', 'warning');
+        return;
+      }
+
+      if (!confirm(`⚠️ Sei SICURO di voler eliminare TUTTE le ${allIds.length} analisi? Questa azione è IRREVERSIBILE.`)) {
+        return;
+      }
+
+      const deleteRes = await fetch('/api/performance/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_ids: allIds })
+      });
+      if (!deleteRes.ok) throw new Error(`HTTP ${deleteRes.status}`);
+      const deleteData = await deleteRes.json();
+      showToast(`✅ ${deleteData.deleted_count} analisi eliminate`, 'success');
+      await refresh();
+    } catch (e) {
+      showToast(`Errore eliminazione: ${e.message}`, 'error');
+    }
+  }
+
   function init() { refresh(); }
 
-  return { init, refresh, toggle, load, deleteAnalysis };
+  return { init, refresh, toggle, load, deleteAnalysis, deleteAll };
 })();
 
 

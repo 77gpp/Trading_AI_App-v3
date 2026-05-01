@@ -13,36 +13,36 @@
 const Performance = (() => {
   // ── Stato ────────────────────────────────────────────────────────────
   let _state = {
-    page:       1,
-    perPage:    20,
-    filterMarket:  '',
+    page: 1,
+    perPage: 20,
+    filterMarket: '',
     filterOutcome: '',
-    filterSymbol:  '',
-    totalItems:    0,
-    _filterTimer:  null,
-    allItems:      [],   // cache di tutte le analisi per i breakdown espandibili
+    filterSymbol: '',
+    totalItems: 0,
+    _filterTimer: null,
+    allItems: [],   // cache di tutte le analisi per i breakdown espandibili
   };
 
   // ── Label / Colori ────────────────────────────────────────────────────
   const MARKET_LABELS = {
     commodity: 'Materie Prime',
-    stock:     'Azioni',
-    forex:     'Forex',
-    crypto:    'Crypto',
-    index:     'Indici',
-    etf:       'ETF',
-    other:     'Altro',
-    unknown:   'Sconosciuto',
+    stock: 'Azioni',
+    forex: 'Forex',
+    crypto: 'Crypto',
+    index: 'Indici',
+    etf: 'ETF',
+    other: 'Altro',
+    unknown: 'Sconosciuto',
   };
 
   const OUTCOME_CONFIG = {
-    win_tp2:   { label: '✅ Win TP2',    cls: 'badge-win',  color: '#03F5A9' },
-    win_tp1:   { label: '✅ Win TP1',    cls: 'badge-win',  color: '#4ade80' },
-    loss_sl:   { label: '❌ Loss SL',    cls: 'badge-loss', color: '#CF6679' },
-    no_entry:  { label: '⏳ No Entry',   cls: 'badge-none', color: '#94a3b8' },
-    open:      { label: '🔵 Aperto',     cls: 'badge-open', color: '#fbbf24' },
-    no_trade:  { label: '⚪ No Trade',   cls: 'badge-none', color: '#64748b' },
-    no_data:   { label: '🔘 No Data',    cls: 'badge-none', color: '#475569' },
+    win_tp2: { label: '✅ Win TP2', cls: 'badge-win', color: '#03F5A9' },
+    win_tp1: { label: '✅ Win TP1', cls: 'badge-win', color: '#4ade80' },
+    loss_sl: { label: '❌ Loss SL', cls: 'badge-loss', color: '#CF6679' },
+    no_entry: { label: '⏳ No Entry', cls: 'badge-none', color: '#94a3b8' },
+    open: { label: '🔵 Aperto', cls: 'badge-open', color: '#fbbf24' },
+    no_trade: { label: '⚪ No Trade', cls: 'badge-none', color: '#64748b' },
+    no_data: { label: '🔘 No Data', cls: 'badge-none', color: '#475569' },
   };
 
   const DIRECTION_CONFIG = {
@@ -110,22 +110,22 @@ const Performance = (() => {
     const total = segments.reduce((s, x) => s + (x.value || 0), 0);
     if (total === 0) {
       return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-        <circle cx="${size/2}" cy="${size/2}" r="${(size-thickness)/2}"
+        <circle cx="${size / 2}" cy="${size / 2}" r="${(size - thickness) / 2}"
           fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="${thickness}"/>
       </svg>`;
     }
 
-    const r  = (size - thickness) / 2;
+    const r = (size - thickness) / 2;
     const cx = size / 2, cy = size / 2;
     const circ = 2 * Math.PI * r;
     let offset = 0;
-    let paths  = '';
+    let paths = '';
 
     for (const seg of segments) {
       if (!seg.value) continue;
-      const pct  = seg.value / total;
+      const pct = seg.value / total;
       const dash = pct * circ;
-      const gap  = circ - dash;
+      const gap = circ - dash;
       paths += `<circle
         cx="${cx}" cy="${cy}" r="${r}"
         fill="none"
@@ -202,13 +202,13 @@ const Performance = (() => {
       },
       {
         label: 'Giorni a Entry',
-        value: stats.avg_days_to_entry !== null ? `${stats.avg_days_to_entry}gg` : '—',
+        value: stats.avg_days_to_entry != null ? `${stats.avg_days_to_entry}gg` : '—',
         cls: 'purple',
         sub: 'tempo medio prima del trigger',
       },
       {
         label: 'Giorni a Exit',
-        value: stats.avg_days_to_exit !== null ? `${stats.avg_days_to_exit}gg` : '—',
+        value: stats.avg_days_to_exit != null ? `${stats.avg_days_to_exit}gg` : '—',
         cls: 'purple',
         sub: 'durata media del trade (entry→exit)',
       },
@@ -216,9 +216,9 @@ const Performance = (() => {
         label: 'No Entry %',
         value: stats.outcome_dist
           ? _fmt(
-              Math.round((stats.outcome_dist.no_entry || 0) / Math.max(stats.total_verified, 1) * 100),
-              '%'
-            )
+            Math.round((stats.outcome_dist.no_entry || 0) / Math.max(stats.total_verified, 1) * 100),
+            '%'
+          )
           : '—',
         cls: '',
         sub: 'analisi senza trigger entry',
@@ -243,9 +243,9 @@ const Performance = (() => {
     // Donut 1: Esiti trade
     const outcomeSegs = [
       { value: (od.win_tp2 || 0) + (od.win_tp1 || 0), color: '#03F5A9', label: 'Win' },
-      { value: od.loss_sl || 0,   color: '#CF6679', label: 'Loss SL' },
-      { value: od.no_entry || 0,  color: '#94a3b8', label: 'No Entry' },
-      { value: od.open || 0,      color: '#fbbf24', label: 'Aperto' },
+      { value: od.loss_sl || 0, color: '#CF6679', label: 'Loss SL' },
+      { value: od.no_entry || 0, color: '#94a3b8', label: 'No Entry' },
+      { value: od.open || 0, color: '#fbbf24', label: 'Aperto' },
       { value: (od.no_trade || 0) + (od.no_data || 0), color: '#475569', label: 'No Trade/Data' },
     ].filter(s => s.value > 0);
     const wr = stats.win_rate !== null ? `${stats.win_rate}%` : '—';
@@ -312,7 +312,7 @@ const Performance = (() => {
         <td style="text-align:center;padding:6px 4px;">
           <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','market')" style="cursor:pointer;" title="Seleziona tutte le analisi di ${r.label}">
         </td>
-        <td><strong>${r.label}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
+        <td><strong>${r.label}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '(' + catItems.length + ')' : ''}</span></td>
         <td>${r.total}</td>
         <td>${r.verified}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
@@ -321,22 +321,22 @@ const Performance = (() => {
         <td style="color:#fbbf24;">${r.open_trades}</td>
         <td>
           <div class="mini-bar-wrap">
-            <div class="mini-bar"><div class="mini-bar-fill" style="width:${wr||0}%;background:${_winRateColor(wr)};"></div></div>
-            <span class="mini-bar-val" style="${wrStyle}">${wr !== null ? wr+'%' : '—'}</span>
+            <div class="mini-bar"><div class="mini-bar-fill" style="width:${wr || 0}%;background:${_winRateColor(wr)};"></div></div>
+            <span class="mini-bar-val" style="${wrStyle}">${wr !== null ? wr + '%' : '—'}</span>
           </div>
         </td>
-        <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl||0)>=0?'#03F5A9':'#CF6679'}">${(r.avg_pnl||0)>=0?'+':''}${r.avg_pnl}%</span>` : '—'}</td>
-        <td>${r.avg_days_entry !== null ? r.avg_days_entry+'gg' : '—'}</td>
-        <td>${r.avg_days_exit !== null ? r.avg_days_exit+'gg' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
-        <td>${r.dir_accuracy !== null ? r.dir_accuracy+'%' : '—'}</td>
+        <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl || 0) >= 0 ? '#03F5A9' : '#CF6679'}">${(r.avg_pnl || 0) >= 0 ? '+' : ''}${r.avg_pnl}%</span>` : '—'}</td>
+        <td>${r.avg_days_entry !== null ? r.avg_days_entry + 'gg' : '—'}</td>
+        <td>${r.avg_days_exit !== null ? r.avg_days_exit + 'gg' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
+        <td>${r.dir_accuracy !== null ? r.dir_accuracy + '%' : '—'}</td>
       </tr>`;
 
       const subRows = catItems.map(item => {
         const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
         const db = _dirBadge(item.direction);
         const pnl = item.pnl_percent !== null
-          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+          ? `<span style="color:${item.pnl_percent >= 0 ? '#03F5A9' : '#CF6679'}">${item.pnl_percent >= 0 ? '+' : ''}${item.pnl_percent}%</span>` : '—';
         return `<tr data-sub-market="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
           <td></td>
           <td style="text-align:center;padding:6px 4px;">
@@ -346,13 +346,13 @@ const Performance = (() => {
             <strong style="color:#3fbef5;">${item.symbol}</strong>
             <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
           </td>
-          <td colspan="2" style="color:#64748b;font-size:10px;">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td colspan="2" style="color:#64748b;font-size:10px;">${item.start_date || '—'} → ${item.end_date || '—'}</td>
           <td colspan="2">${db}</td>
           <td colspan="2">${ob}</td>
           <td>${pnl}</td>
-          <td>${item.days_to_entry !== null ? item.days_to_entry+'gg' : '—'}</td>
-          <td>${item.days_to_exit !== null ? item.days_to_exit+'gg' : '—'}</td>
-          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct+'%' : '—'}</td>
+          <td>${item.days_to_entry !== null ? item.days_to_entry + 'gg' : '—'}</td>
+          <td>${item.days_to_exit !== null ? item.days_to_exit + 'gg' : '—'}</td>
+          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct + '%' : '—'}</td>
           <td>${item.direction_correct !== null ? (item.direction_correct ? '✅' : '❌') : '—'}</td>
           <td></td>
         </tr>`;
@@ -385,7 +385,7 @@ const Performance = (() => {
 
     const tbody = rows.map(r => {
       const cfg = DIRECTION_CONFIG[r.direction] || { label: r.direction, cls: 'badge-none' };
-      const wr  = r.win_rate;
+      const wr = r.win_rate;
       const catItems = (allItems || []).filter(i => i.direction === r.direction);
       const catKey = r.direction;
 
@@ -397,20 +397,20 @@ const Performance = (() => {
         <td style="text-align:center;padding:6px 4px;">
           <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','direction')" style="cursor:pointer;" title="Seleziona tutte le analisi ${r.direction}">
         </td>
-        <td><span class="badge ${cfg.cls}">${cfg.label}</span> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
+        <td><span class="badge ${cfg.cls}">${cfg.label}</span> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '(' + catItems.length + ')' : ''}</span></td>
         <td>${r.total}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
         <td style="color:#CF6679;">${r.losses}</td>
-        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr+'%' : '—'}</td>
-        <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl||0)>=0?'#03F5A9':'#CF6679'}">${(r.avg_pnl||0)>=0?'+':''}${r.avg_pnl}%</span>` : '—'}</td>
-        <td>${r.avg_days_exit !== null ? r.avg_days_exit+'gg' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
+        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr + '%' : '—'}</td>
+        <td>${r.avg_pnl !== null ? `<span style="color:${(r.avg_pnl || 0) >= 0 ? '#03F5A9' : '#CF6679'}">${(r.avg_pnl || 0) >= 0 ? '+' : ''}${r.avg_pnl}%</span>` : '—'}</td>
+        <td>${r.avg_days_exit !== null ? r.avg_days_exit + 'gg' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
       </tr>`;
 
       const subRows = catItems.map(item => {
         const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
         const pnl = item.pnl_percent !== null
-          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+          ? `<span style="color:${item.pnl_percent >= 0 ? '#03F5A9' : '#CF6679'}">${item.pnl_percent >= 0 ? '+' : ''}${item.pnl_percent}%</span>` : '—';
         return `<tr data-sub-direction="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
           <td></td>
           <td style="text-align:center;padding:6px 4px;">
@@ -420,11 +420,11 @@ const Performance = (() => {
             <strong style="color:#3fbef5;">${item.symbol}</strong>
             <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
           </td>
-          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date || '—'} → ${item.end_date || '—'}</td>
           <td colspan="2">${ob}</td>
           <td>${pnl}</td>
-          <td>${item.days_to_exit !== null ? item.days_to_exit+'gg' : '—'}</td>
-          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct+'%' : '—'}</td>
+          <td>${item.days_to_exit !== null ? item.days_to_exit + 'gg' : '—'}</td>
+          <td>${item.forecast_error_pct !== null ? item.forecast_error_pct + '%' : '—'}</td>
         </tr>`;
       }).join('');
 
@@ -465,20 +465,20 @@ const Performance = (() => {
         <td style="text-align:center;padding:6px 4px;">
           <input type="checkbox" onchange="Performance.toggleCategoryAll(this,'${catKey}','provider')" style="cursor:pointer;" title="Seleziona tutte le analisi di ${catKey}">
         </td>
-        <td><strong style="color:#BB86FC;">${r.provider}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '('+catItems.length+')' : ''}</span></td>
+        <td><strong style="color:#BB86FC;">${r.provider}</strong> <span style="color:#475569;font-size:10px;">${catItems.length > 0 ? '(' + catItems.length + ')' : ''}</span></td>
         <td>${r.total}</td>
         <td style="color:#03F5A9;">${r.wins}</td>
         <td style="color:#CF6679;">${r.losses}</td>
-        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr+'%' : '—'}</td>
-        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err+'%' : '—'}</td>
-        <td>${r.dir_accuracy !== null ? r.dir_accuracy+'%' : '—'}</td>
+        <td style="color:${_winRateColor(wr)};font-weight:700;">${wr !== null ? wr + '%' : '—'}</td>
+        <td>${r.avg_forecast_err !== null ? r.avg_forecast_err + '%' : '—'}</td>
+        <td>${r.dir_accuracy !== null ? r.dir_accuracy + '%' : '—'}</td>
       </tr>`;
 
       const subRows = catItems.map(item => {
         const ob = item.outcome ? _outcomeBadge(item.outcome) : '<span style="color:#475569;font-size:10px;">—</span>';
         const db = _dirBadge(item.direction);
         const pnl = item.pnl_percent !== null
-          ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'}">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>` : '—';
+          ? `<span style="color:${item.pnl_percent >= 0 ? '#03F5A9' : '#CF6679'}">${item.pnl_percent >= 0 ? '+' : ''}${item.pnl_percent}%</span>` : '—';
         return `<tr data-sub-provider="${catKey}" style="display:none;background:rgba(255,255,255,0.015);border-left:2px solid rgba(187,134,252,0.2);">
           <td></td>
           <td style="text-align:center;padding:6px 4px;">
@@ -488,7 +488,7 @@ const Performance = (() => {
             <strong style="color:#3fbef5;">${item.symbol}</strong>
             <span style="color:#475569;font-size:10px;margin-left:6px;">${_fmtDate(item.analysis_date)}</span>
           </td>
-          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date||'—'} → ${item.end_date||'—'}</td>
+          <td style="color:#64748b;font-size:10px;" colspan="2">${item.start_date || '—'} → ${item.end_date || '—'}</td>
           <td colspan="2">${db}</td>
           <td>${ob}</td>
           <td>${pnl}</td>
@@ -529,16 +529,16 @@ const Performance = (() => {
   // ── Tabella Storico Analisi ───────────────────────────────────────────
 
   function _renderAnalysisRow(item) {
-    const outcome      = item.outcome || null;
+    const outcome = item.outcome || null;
     const outcomeBadge = outcome ? _outcomeBadge(outcome) : '<span style="color:#475569;font-size:11px;">Non verificato</span>';
-    const dirBadge     = _dirBadge(item.direction);
-    const pnlHtml      = item.pnl_percent !== null
-      ? `<span style="color:${item.pnl_percent>=0?'#03F5A9':'#CF6679'};font-weight:600;">${item.pnl_percent>=0?'+':''}${item.pnl_percent}%</span>`
+    const dirBadge = _dirBadge(item.direction);
+    const pnlHtml = item.pnl_percent !== null
+      ? `<span style="color:${item.pnl_percent >= 0 ? '#03F5A9' : '#CF6679'};font-weight:600;">${item.pnl_percent >= 0 ? '+' : ''}${item.pnl_percent}%</span>`
       : '—';
-    const fcstErrHtml  = item.forecast_error_pct !== null
-      ? `<span style="color:${item.forecast_error_pct<=5?'#03F5A9':(item.forecast_error_pct<=15?'#fbbf24':'#CF6679')}">${item.forecast_error_pct}%</span>`
+    const fcstErrHtml = item.forecast_error_pct !== null
+      ? `<span style="color:${item.forecast_error_pct <= 5 ? '#03F5A9' : (item.forecast_error_pct <= 15 ? '#fbbf24' : '#CF6679')}">${item.forecast_error_pct}%</span>`
       : '—';
-    const dirOkHtml    = item.direction_correct !== null
+    const dirOkHtml = item.direction_correct !== null
       ? (item.direction_correct ? '✅' : '❌')
       : '—';
 
@@ -575,7 +575,7 @@ const Performance = (() => {
       <td style="white-space:nowrap;">
         ${!outcome ? `<button class="btn btn-secondary" style="font-size:10px;padding:3px 7px;margin-right:4px;" onclick="Performance.verifyNow('${item.id}')">▶ Verifica</button>` : ''}
         <button class="btn btn-secondary" style="font-size:10px;padding:3px 7px;background:rgba(207,102,121,0.12);color:#CF6679;border-color:rgba(207,102,121,0.3);"
-                onclick="Performance.deleteSingle('${item.id}','${(item.symbol||'').replace(/'/g,"\\'")}')">🗑️</button>
+                onclick="Performance.deleteSingle('${item.id}','${(item.symbol || '').replace(/'/g, "\\'")}')">🗑️</button>
       </td>
     </tr>`;
   }
@@ -588,15 +588,15 @@ const Performance = (() => {
       document.getElementById('pagination').innerHTML = '';
       return;
     }
-    let html = `<span class="page-info">${((page-1)*perPage)+1}–${Math.min(page*perPage,total)} di ${total}</span>`;
-    html += `<button class="btn-page" ${page<=1?'disabled':''} onclick="Performance.goPage(${page-1})">◀</button>`;
+    let html = `<span class="page-info">${((page - 1) * perPage) + 1}–${Math.min(page * perPage, total)} di ${total}</span>`;
+    html += `<button class="btn-page" ${page <= 1 ? 'disabled' : ''} onclick="Performance.goPage(${page - 1})">◀</button>`;
     // pagine vicine
-    const from = Math.max(1, page-2);
-    const to   = Math.min(totalPages, page+2);
+    const from = Math.max(1, page - 2);
+    const to = Math.min(totalPages, page + 2);
     for (let p = from; p <= to; p++) {
-      html += `<button class="btn-page" ${p===page?'style="background:rgba(59,130,246,0.2);color:#3fbef5;border-color:rgba(59,130,246,0.4);"':''} onclick="Performance.goPage(${p})">${p}</button>`;
+      html += `<button class="btn-page" ${p === page ? 'style="background:rgba(59,130,246,0.2);color:#3fbef5;border-color:rgba(59,130,246,0.4);"' : ''} onclick="Performance.goPage(${p})">${p}</button>`;
     }
-    html += `<button class="btn-page" ${page>=totalPages?'disabled':''} onclick="Performance.goPage(${page+1})">▶</button>`;
+    html += `<button class="btn-page" ${page >= totalPages ? 'disabled' : ''} onclick="Performance.goPage(${page + 1})">▶</button>`;
     document.getElementById('pagination').innerHTML = html;
   }
 
@@ -615,12 +615,12 @@ const Performance = (() => {
 
   async function _loadList() {
     const params = new URLSearchParams({
-      page:     _state.page,
+      page: _state.page,
       per_page: _state.perPage,
     });
-    if (_state.filterMarket)  params.set('market_type', _state.filterMarket);
+    if (_state.filterMarket) params.set('market_type', _state.filterMarket);
     if (_state.filterOutcome) params.set('outcome', _state.filterOutcome);
-    if (_state.filterSymbol)  params.set('symbol', _state.filterSymbol);
+    if (_state.filterSymbol) params.set('symbol', _state.filterSymbol);
 
     try {
       const res = await fetch(`/api/performance/list?${params}`);
@@ -675,10 +675,10 @@ const Performance = (() => {
       document.getElementById('providerTable').innerHTML = '';
       document.getElementById('entryTimeDist').innerHTML = '';
     } else {
-      document.getElementById('kpiGrid').innerHTML       = _renderKPIs(stats);
-      document.getElementById('chartsRow').innerHTML     = _renderCharts(stats);
-      document.getElementById('marketTable').innerHTML   = _renderMarketTable(stats, _state.allItems);
-      document.getElementById('directionTable').innerHTML= _renderDirectionTable(stats, _state.allItems);
+      document.getElementById('kpiGrid').innerHTML = _renderKPIs(stats);
+      document.getElementById('chartsRow').innerHTML = _renderCharts(stats);
+      document.getElementById('marketTable').innerHTML = _renderMarketTable(stats, _state.allItems);
+      document.getElementById('directionTable').innerHTML = _renderDirectionTable(stats, _state.allItems);
       document.getElementById('providerTable').innerHTML = _renderProviderTable(stats, _state.allItems);
       document.getElementById('entryTimeDist').innerHTML = _renderEntryTimeDist(stats);
     }
@@ -714,25 +714,30 @@ const Performance = (() => {
     const selected = Array.from(document.querySelectorAll('.analysis-checkbox:checked'))
       .map(cb => cb.dataset.id);
 
-    const badge   = document.getElementById('kpiSelectionBadge');
+    const badge = document.getElementById('kpiSelectionBadge');
     const clearBtn = document.getElementById('kpiClearBtn');
-    const delBtn  = document.getElementById('kpiDeleteBtn');
+    const delBtn = document.getElementById('kpiDeleteBtn');
 
     if (selected.length === 0) {
-      if (badge)   { badge.style.display = 'none'; }
-      if (clearBtn){ clearBtn.style.display = 'none'; }
-      if (delBtn)  { delBtn.style.display = 'none'; }
+      if (badge) {
+        badge.textContent = 'Nessuna selezione — dati globali';
+        badge.style.display = 'inline-flex';
+      }
+      if (clearBtn) { clearBtn.style.display = 'none'; }
+      if (delBtn) { delBtn.style.display = 'none'; }
       const selectAllCb = document.getElementById('selectAllCheckbox');
       if (selectAllCb) selectAllCb.checked = false;
-      // Ripristina i KPI globali
+      // Ripristina i KPI globali e la distribuzione giorni
       const stats = await _loadStats();
-      if (stats) document.getElementById('kpiGrid').innerHTML = _renderKPIs(stats);
-      return;
+      if (stats) {
+        document.getElementById('kpiGrid').innerHTML = _renderKPIs(stats);
+        document.getElementById('entryTimeDist').innerHTML = _renderEntryTimeDist(stats);
+      }
+    } else {
+      if (badge) { badge.textContent = `${selected.length} selezionate`; badge.style.display = 'inline-flex'; }
+      if (clearBtn) { clearBtn.style.display = 'inline-block'; }
+      if (delBtn) { delBtn.style.display = 'inline-block'; }
     }
-
-    if (badge)   { badge.textContent = `${selected.length} selezionate`; badge.style.display = 'inline-flex'; }
-    if (clearBtn){ clearBtn.style.display = 'inline-block'; }
-    if (delBtn)  { delBtn.style.display = 'inline-block'; }
 
     try {
       const res = await fetch('/api/performance/stats/filtered', {
@@ -744,6 +749,8 @@ const Performance = (() => {
       const filteredStats = await res.json();
       // Aggiorna i KPI in cima in place con i dati filtrati
       document.getElementById('kpiGrid').innerHTML = _renderKPIs(filteredStats);
+      // Aggiorna sempre la distribuzione giorni
+      document.getElementById('entryTimeDist').innerHTML = _renderEntryTimeDist(filteredStats);
     } catch (e) {
       console.error('[PERF FILTERED] Errore:', e);
     }
@@ -815,6 +822,35 @@ const Performance = (() => {
     }
   }
 
+  async function deleteAll() {
+    const allData = await _loadAll();
+    const allIds = (allData?.items || []).map(i => i.id);
+
+    if (!allIds.length) {
+      _showToast('Nessuna analisi da eliminare', 'warning');
+      return;
+    }
+
+    if (!confirm(`⚠️ Sei SICURO di voler eliminare TUTTE le ${allIds.length} analisi? Questa azione è IRREVERSIBILE.`)) {
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/performance/delete-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ analysis_ids: allIds })
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      _showToast(`✅ ${data.deleted_count} analisi eliminate`, 'success');
+      clearSelection();
+      refresh();
+    } catch (e) {
+      _showToast(`Errore eliminazione: ${e.message}`, 'error');
+    }
+  }
+
   function clearSelection() {
     document.querySelectorAll('.analysis-checkbox').forEach(cb => cb.checked = false);
     // Deseleziona anche i checkbox di categoria
@@ -842,9 +878,9 @@ const Performance = (() => {
   }
 
   function applyFilters() {
-    _state.filterMarket  = document.getElementById('filterMarket')?.value  || '';
+    _state.filterMarket = document.getElementById('filterMarket')?.value || '';
     _state.filterOutcome = document.getElementById('filterOutcome')?.value || '';
-    _state.filterSymbol  = document.getElementById('filterSymbol')?.value  || '';
+    _state.filterSymbol = document.getElementById('filterSymbol')?.value || '';
     _state.page = 1;
     goPage(1);
   }
@@ -866,10 +902,10 @@ const Performance = (() => {
       // Ricarica anche le stats globali
       const stats = await _loadStats();
       if (stats && stats.total_analyses) {
-        document.getElementById('kpiGrid').innerHTML       = _renderKPIs(stats);
-        document.getElementById('chartsRow').innerHTML     = _renderCharts(stats);
-        document.getElementById('marketTable').innerHTML   = _renderMarketTable(stats);
-        document.getElementById('directionTable').innerHTML= _renderDirectionTable(stats);
+        document.getElementById('kpiGrid').innerHTML = _renderKPIs(stats);
+        document.getElementById('chartsRow').innerHTML = _renderCharts(stats);
+        document.getElementById('marketTable').innerHTML = _renderMarketTable(stats);
+        document.getElementById('directionTable').innerHTML = _renderDirectionTable(stats);
         document.getElementById('providerTable').innerHTML = _renderProviderTable(stats);
       }
     } catch (e) {
@@ -894,28 +930,28 @@ const Performance = (() => {
   function exportCSV() {
     // Scarica tutti gli item come CSV
     const params = new URLSearchParams({ page: 1, per_page: 1000 });
-    if (_state.filterMarket)  params.set('market_type', _state.filterMarket);
+    if (_state.filterMarket) params.set('market_type', _state.filterMarket);
     if (_state.filterOutcome) params.set('outcome', _state.filterOutcome);
-    if (_state.filterSymbol)  params.set('symbol', _state.filterSymbol);
+    if (_state.filterSymbol) params.set('symbol', _state.filterSymbol);
 
     fetch(`/api/performance/list?${params}`)
       .then(r => r.json())
       .then(data => {
         if (!data.items?.length) { _showToast('Nessun dato da esportare', 'warning'); return; }
-        const cols = ['analysis_date','symbol','market_type','start_date','end_date',
-          'direction','entry','stop_loss','take_profit_1','take_profit_2',
-          'ai_forecast_price','ai_forecast_bias','llm_provider','outcome',
-          'pnl_percent','days_to_entry','days_to_exit','forecast_error_pct','direction_correct'];
+        const cols = ['analysis_date', 'symbol', 'market_type', 'start_date', 'end_date',
+          'direction', 'entry', 'stop_loss', 'take_profit_1', 'take_profit_2',
+          'ai_forecast_price', 'ai_forecast_bias', 'llm_provider', 'outcome',
+          'pnl_percent', 'days_to_entry', 'days_to_exit', 'forecast_error_pct', 'direction_correct'];
         const header = cols.join(',');
         const rows = data.items.map(r =>
           cols.map(c => JSON.stringify(r[c] ?? '')).join(',')
         );
         const csv = [header, ...rows].join('\n');
         const blob = new Blob([csv], { type: 'text/csv' });
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
         a.href = url;
-        a.download = `performance_${new Date().toISOString().slice(0,10)}.csv`;
+        a.download = `performance_${new Date().toISOString().slice(0, 10)}.csv`;
         a.click();
         URL.revokeObjectURL(url);
         _showToast(`Esportato ${data.items.length} righe`, 'success');
@@ -924,8 +960,10 @@ const Performance = (() => {
   }
 
   // ── Init ──────────────────────────────────────────────────────────────
-  document.addEventListener('DOMContentLoaded', () => {
-    _renderAll();
+  document.addEventListener('DOMContentLoaded', async () => {
+    await _renderAll();
+    // Imposta il badge iniziale (nessuna selezione)
+    onCheckboxChange();
   });
 
   return {
@@ -938,6 +976,7 @@ const Performance = (() => {
     toggleSelectAll,
     onCheckboxChange,
     deleteSelected,
+    deleteAll,
     deleteSingle,
     clearSelection,
     toggleCategoryExpand,
